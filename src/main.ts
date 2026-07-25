@@ -17,6 +17,7 @@ import { AudioEngine } from './audio/audio';
 import { AudioDirector } from './audio/director';
 import { Narrator } from './audio/narrator';
 import { Hud } from './ui/hud';
+import { ObjectivePanel } from './ui/objectivePanel';
 import { showBriefing, showOutcome } from './ui/overlay';
 
 /**
@@ -82,6 +83,8 @@ hud = new Hud(uiRoot, game, {
     game.pickUpCreature(candidate);
   },
 });
+
+const objectivePanel = new ObjectivePanel(uiRoot, game);
 
 /* ------------------------------------------------------------ top strip -- */
 
@@ -211,6 +214,7 @@ function frame(): void {
   }
 
   hud.update();
+  objectivePanel.update();
   hud.minimap.draw(camera.target.x, camera.target.z, camera.getYaw(), camera.getDistance());
 
   rosterTimer += dt;
@@ -239,7 +243,8 @@ function frame(): void {
 
   if (game.status !== 'playing' && !outcomeShown) {
     outcomeShown = true;
-    showOutcome(uiRoot!, game.status, () => location.reload());
+    showOutcome(uiRoot!, game.status, () => location.reload(),
+      game.objectives, game.elapsedTicks);
   }
 
   rig.render();
@@ -253,7 +258,7 @@ showBriefing(uiRoot, () => {
   refreshAudioButtons();
   setPaused(false);
   director.begin();
-}, false);
+}, false, game.objectives);
 setPaused(true);
 frame();
 window.dispatchEvent(new Event('dk-ready'));
@@ -291,6 +296,7 @@ if (import.meta.hot) {
     hand.dispose();
     camera.dispose();
     hud.dispose();
+    objectivePanel.dispose();
     terrain.dispose();
     roomProps.dispose();
     devices.dispose();

@@ -497,13 +497,26 @@ html, body {
 .overlay-card {
   width: min(620px, 90vw);
   max-height: 86vh;
-  overflow-y: auto;
+  /* The card scrolls its body, not itself: on a short screen the whole card
+     scrolling pushed the Begin button below the fold, which left the primary
+     action of the screen apparently missing. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: 26px 30px;
   border: 2px solid var(--bronze);
   border-radius: 6px;
   background: linear-gradient(180deg, #241d16, #100c09);
   box-shadow: 0 0 60px rgba(216, 72, 31, 0.18), 0 20px 60px rgba(0, 0, 0, 0.7);
   text-align: center;
+}
+
+.overlay-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the scrollbar so text does not sit under it. */
+  padding-right: 4px;
 }
 
 .overlay-card h1 {
@@ -534,7 +547,9 @@ html, body {
 .overlay-card .keys dd { margin: 0; color: var(--text-dim); }
 
 .big-button {
-  margin-top: 12px;
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 14px;
   padding: 11px 30px;
   border: 2px solid var(--bronze-light);
   border-radius: 5px;
@@ -587,4 +602,167 @@ html, body {
 @media (pointer: coarse) and (min-width: 900px) {
   :root { --panel-h: 176px; }
   #info-block { display: flex; width: 220px; }
+}
+
+/* ---------------------------------------------------------- objectives -- */
+
+/* Over the view, not in the keeper's panel: the panel's info column is the
+   first thing to go on a small screen, and the level's goals must never be
+   the part that gets hidden. */
+#objectives {
+  position: absolute;
+  top: 48px;
+  left: 12px;
+  width: 268px;
+  max-width: calc(100vw - 24px);
+  z-index: 8;
+  border: 2px solid #0c0906;
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(43, 34, 25, 0.94) 0%, rgba(20, 16, 12, 0.94) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 220, 160, 0.10) inset,
+    0 6px 24px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+#objectives-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  background: none;
+  color: var(--gold);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+
+#objectives-header:hover { color: #ffd98a; }
+#objectives-header .label { flex: 1; }
+
+#objectives-header .caret {
+  font-size: 10px;
+  transition: transform 120ms ease;
+}
+#objectives.collapsed #objectives-header .caret { transform: rotate(-90deg); }
+
+#objectives-header .count {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-dim);
+}
+#objectives-header .count.done { color: var(--ok); }
+
+#objectives.collapsed #objectives-list,
+#objectives.collapsed #objectives-banner { display: none; }
+
+#objectives-banner {
+  margin: 0 7px 6px;
+  padding: 5px 8px;
+  border-left: 3px solid var(--ember);
+  background: rgba(216, 72, 31, 0.14);
+  color: #f0c8a8;
+  font-size: 12px;
+}
+#objectives-banner.hidden { display: none; }
+
+#objectives-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 9px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#objectives-list li {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+#objectives-list li.bonus { color: var(--text-dim); }
+#objectives-list li.done .text { color: var(--ok); text-decoration: line-through; }
+#objectives-list li.done .mark { color: var(--ok); }
+
+#objectives-list .mark {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--gold-dim);
+}
+#objectives-list li.bonus .mark { color: #6b5a3f; }
+#objectives-list .mark svg { width: 100%; height: 100%; display: block; }
+
+#objectives-list .text { flex: 1; }
+#objectives-list .text em {
+  font-style: normal;
+  color: var(--gold-dim);
+  white-space: nowrap;
+}
+
+#objectives-list .bar {
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  background: #0c0906;
+  border-radius: 2px;
+  overflow: hidden;
+}
+#objectives-list .bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+}
+
+/* Narrow screens: keep it, but out of the way. */
+@media (max-width: 560px) {
+  #objectives { top: 44px; left: 8px; width: 220px; font-size: 11px; }
+}
+
+/* ------------------------------------------- briefing & verdict details -- */
+
+.brief-heading {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+}
+
+dl.objectives {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 4px 14px;
+  margin: 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+dl.objectives dt { color: var(--text); }
+dl.objectives dd { margin: 0; color: var(--text-dim); }
+dl.objectives.bonus dt { color: var(--text-dim); }
+
+dl.objectives.outcome dt.met { color: var(--ok); }
+dl.objectives.outcome dt.missed { color: var(--text-dim); }
+
+.brief-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+@media (max-width: 620px) {
+  dl.objectives { grid-template-columns: 1fr; gap: 2px; }
+  dl.objectives dd { margin-bottom: 6px; }
 }

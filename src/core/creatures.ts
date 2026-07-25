@@ -122,6 +122,8 @@ export enum CreatureState {
   Researching = 8,
   /** Building traps and doors in a workshop. */
   Manufacturing = 15,
+  /** Tearing at an enemy keeper's Dungeon Heart. */
+  AttackingHeart = 16,
   Fighting = 9,
   Fleeing = 10,
   /** Picked up by the Hand of Evil. */
@@ -144,6 +146,7 @@ export const STATE_NAMES: Record<CreatureState, string> = {
   [CreatureState.Training]: 'Training',
   [CreatureState.Researching]: 'Researching',
   [CreatureState.Manufacturing]: 'Manufacturing',
+  [CreatureState.AttackingHeart]: 'Breaking the heart',
   [CreatureState.Fighting]: 'Fighting',
   [CreatureState.Fleeing]: 'Fleeing',
   [CreatureState.InHand]: 'In your hand',
@@ -200,6 +203,23 @@ export interface Creature {
   animPhase: number;
   /** Cosmetic per-creature variation so a crowd doesn't look cloned. */
   seed: number;
+
+  /**
+   * The Lord of the Land: a knight with a title, a retinue and far too much
+   * armour. Killing him is usually the whole point of a level, so he is flagged
+   * rather than merely being a high-level knight — the objective has to be able
+   * to tell him apart from the escort he arrives with.
+   */
+  isLord: boolean;
+
+  /**
+   * Which hero raiding party this belongs to, or 0.
+   *
+   * "Repel a raid" has to mean a specific party was wiped out. Counting
+   * "no heroes anywhere" instead makes the objective unreachable the moment two
+   * waves overlap, which they routinely do.
+   */
+  waveId: number;
 }
 
 let nextCreatureId = 1;
@@ -236,6 +256,8 @@ export function createCreature(
     inHand: false,
     animPhase: Math.random() * Math.PI * 2,
     seed: Math.random(),
+    isLord: false,
+    waveId: 0,
   };
 }
 

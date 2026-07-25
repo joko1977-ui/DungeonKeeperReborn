@@ -21,7 +21,7 @@ export enum Terrain {
   Path = 4,
   /** Floor claimed by a keeper. Rooms go here. */
   Claimed = 5,
-  /** Earth reinforced by a keeper's imps. Only enemy imps can break it. */
+  /** Earth reinforced by a keeper's imps. Diggable, but much slower going. */
   Wall = 6,
   /** Impassable to walkers, crossable by fliers. */
   Water = 7,
@@ -36,9 +36,19 @@ export function isSolid(t: Terrain): boolean {
   return t <= Terrain.Gems || t === Terrain.Wall;
 }
 
-/** Can an imp chew through this? Gems can be mined forever; rock never. */
+/**
+ * Can an imp chew through this? Gems can be mined forever; rock never.
+ *
+ * Reinforced Wall belongs here. Leaving it out meant imps sealed their own
+ * dungeon in: they reinforce every earth wall touching claimed floor as a matter
+ * of routine, and each one they finished became permanently impassable to
+ * everybody — so a tagged slab behind it could never be reached and excavation
+ * quietly stopped for the rest of the level. DIG_HEALTH has always carried an
+ * entry for Wall, which is what it was for: tougher, not eternal.
+ */
 export function isDiggable(t: Terrain): boolean {
-  return t === Terrain.Earth || t === Terrain.Gold || t === Terrain.Gems;
+  return t === Terrain.Earth || t === Terrain.Gold || t === Terrain.Gems
+    || t === Terrain.Wall;
 }
 
 /** Solid tiles a keeper can reinforce into a Wall. */
@@ -75,6 +85,16 @@ export const OWNER_COLORS: Record<Owner, number> = {
 };
 
 /** Rooms buildable on claimed floor. */
+/**
+ * How much punishment a Dungeon Heart takes before it stops.
+ *
+ * Sized so that breaking one is a deliberate assault rather than a stray
+ * creature wandering in: a handful of mid-level monsters need something like
+ * half a minute of uninterrupted work, which is long enough for the defender to
+ * notice and answer.
+ */
+export const HEART_HP = 5200;
+
 export enum RoomType {
   None = 0,
   /** The keeper's soul. Lose it and you lose the level. */

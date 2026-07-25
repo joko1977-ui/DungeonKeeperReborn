@@ -23,7 +23,7 @@ import {
   xpForNextLevel,
 } from './creatures';
 import { PathFinder } from './pathfinding';
-import { RoomIndex, nearestRoomTile } from './rooms';
+import { RoomIndex, heartTile, nearestRoomTile } from './rooms';
 import { TileMap } from './tilemap';
 
 /**
@@ -55,8 +55,27 @@ export interface AIWorld {
   isLairFree(tile: number): boolean;
 
   addResearch(owner: Owner, points: number): void;
+  /**
+   * Is this tile tagged for excavation by that owner?
+   *
+   * The player's tags live in a flag on the tile, but rival keepers need their
+   * own orders — a shared flag would have a rival's imps cheerfully digging out
+   * whatever the player tagged, and vice versa.
+   */
+  hasDigOrder(owner: Owner, x: number, y: number): boolean;
   /** Hit a door. Returns true when it breaks. */
   damageDoor(x: number, y: number, amount: number): boolean;
+  /**
+   * Hit a keeper's Dungeon Heart. Returns true when it stops.
+   *
+   * Nothing could damage a heart before this, which meant the level could be
+   * neither won nor lost — the two conditions the whole game rests on.
+   */
+  damageHeart(owner: Owner, amount: number): boolean;
+  /** Fraction of a keeper's heart still intact, 0..1. */
+  heartIntegrity(owner: Owner): number;
+  /** Tile this keeper's creatures have been called to, or -1. */
+  rallyTile(owner: Owner): number;
   notify(message: string, cue?: string): void;
   /** Fire off a one-shot visual: 'dig' | 'claim' | 'hit' | 'gold' | 'sleep' | 'poof'. */
   effect(kind: string, x: number, y: number): void;
@@ -186,6 +205,32 @@ function findEnemy(world: AIWorld, c: Creature, range: number): Creature | null 
   return best;
 }
 
+/**
+ * Nearest hostile standing on ground we own, however far off.
+ *
+ * Without this a raiding party that survives the first clash simply wanders
+ * around your dungeon untouched forever: creatures only noticed enemies six
+ * tiles away, so nobody ever went looking. A dungeon that does not hunt down
+ * intruders never finishes a fight, which means a raid is never repelled and
+ * the level stops progressing.
+ */
+function findIntruder(world: AIWorld, c: Creature, range: number): Creature | null {
+  const { map } = world;
+  let best: Creature | null = null;
+  let bestD = range * range;
+  for (const other of world.creatures) {
+    if (other.id === c.id || other.inHand) continue;
+    if (other.state === CreatureState.Dying) continue;
+    if (!isHostileTo(c, other)) continue;
+    // Only inside our own borders. Chasing enemies across the map turns every
+    // creature into a wandering hero-hunter and empties the dungeon.
+    if (map.ownerAt(Math.round(other.x), Math.round(other.y)) !== c.owner) continue;
+    const d = dist2(c.x, c.y, other.x, other.y);
+    if (d < bestD) { bestD = d; best = other; }
+  }
+  return best;
+}
+
 function applyDamage(world: AIWorld, attacker: Creature | null, victim: Creature, amount: number): void {
   victim.hp -= amount;
   world.effect('hit', victim.x, victim.y);
@@ -283,7 +328,8 @@ function thinkImp(world: AIWorld, c: Creature): void {
     (x, y) => pass(x, y),
     // Only tags with a reachable face are workable right now; the rest of a
     // tagged slab becomes diggable as the outer layer comes away.
-    (x, y) => map.isMarked(x, y) && isDiggable(map.terrainAt(x, y)) && map.hasExposedFace(x, y),
+    (x, y) => world.hasDigOrder(c.owner, x, y) && isDiggable(map.terrainAt(x, y))
+      && map.hasExposedFace(x, y),
   );
   if (digTarget >= 0) {
     const stand = adjacentStandTile(map, digTarget, c);
@@ -343,7 +389,7 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
   const terrain = map.terrainAt(tx, ty);
 
   // Excavating.
-  if (map.isMarked(tx, ty) && isDiggable(terrain)) {
+  if (world.hasDigOrder(c.owner, tx, ty) && isDiggable(terrain)) {
     c.state = CreatureState.Digging;
     const gold = map.digTile(tx, ty, IMP_DIG_RATE);
     if (c.stateTimer % 6 === 0) world.effect('dig', tx, ty);
@@ -390,6 +436,14 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
     const stored = world.depositGold(c.owner, c.goldHeld);
     c.goldHeld -= stored;
     world.effect('gold', tx, ty);
+    if (stored <= 0) {
+      // A full treasury used to park every imp on it permanently: nothing fit,
+      // so the load never cleared, so this branch kept reporting "still working"
+      // and the whole workforce stopped digging for the rest of the level. The
+      // load is spilled instead. `depositGold` has already told the player their
+      // treasury is full, which is the actual problem to go and fix.
+      c.goldHeld = 0;
+    }
     if (c.goldHeld <= 0) {
       c.goldHeld = 0;
       c.targetTile = -1;
@@ -401,6 +455,105 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
 
   c.targetTile = -1;
   return false;
+}
+
+/**
+ * Send a hero at the closest Dungeon Heart it can reach.
+ *
+ * Whichever keeper it belongs to: the surface does not much care which of you it
+ * is killing. Returns false if no heart is reachable, so the caller can fall
+ * back to milling about rather than freezing on the spot.
+ */
+function marchOnNearestHeart(world: AIWorld, c: Creature): boolean {
+  const { map } = world;
+  let best = -1;
+  let bestD = Infinity;
+  for (const owner of [Owner.Player, Owner.KeeperBlue, Owner.KeeperGreen]) {
+    const tile = heartTile(map, world.rooms, owner);
+    if (tile < 0) continue;
+    const d = dist2(c.x, c.y, map.xOf(tile), map.yOf(tile));
+    if (d < bestD) { bestD = d; best = tile; }
+  }
+  if (best < 0) return false;
+  if (!setPathTo(world, c, best)) return false;
+  c.state = CreatureState.Walking;
+  c.targetTile = best;
+  return true;
+}
+
+/**
+ * Tear at an enemy heart, one swing at a time.
+ *
+ * A defender who turns up interrupts this, because `updateCreature` re-checks
+ * for enemies first — which is what makes an assault something you can answer
+ * rather than a countdown you watch.
+ */
+function doHeartBreaking(world: AIWorld, c: Creature): void {
+  const { map } = world;
+  if (c.targetTile < 0) { c.state = CreatureState.Idle; return; }
+  const tx = map.xOf(c.targetTile), ty = map.yOf(c.targetTile);
+  const owner = map.ownerAt(tx, ty);
+
+  // The heart may already be gone, or someone may have reclaimed the tile.
+  if (map.roomAt(tx, ty) !== RoomType.DungeonHeart || owner === c.owner
+    || owner === Owner.None) {
+    c.targetTile = -1;
+    c.state = CreatureState.Idle;
+    c.thinkCooldown = 0;
+    return;
+  }
+  if (dist2(c.x, c.y, tx, ty) > 2.5) {
+    c.state = CreatureState.Idle;
+    c.thinkCooldown = 0;
+    return;
+  }
+
+  c.facing = Math.atan2(ty - c.y, tx - c.x);
+  if (c.stateTimer % 10 !== 0) return;
+  world.damageHeart(owner, strengthOf(c) * 1.5);
+  world.effect('hit', tx + (Math.random() - 0.5), ty + (Math.random() - 0.5));
+}
+
+/**
+ * A hostile Dungeon Heart tile next to this creature, or -1.
+ *
+ * Adjacency rather than range: you have to be standing on the thing to tear at
+ * it, which is what makes the defender's counter-attack meaningful.
+ */
+function adjacentEnemyHeart(world: AIWorld, c: Creature): number {
+  const { map } = world;
+  const cx = Math.round(c.x), cy = Math.round(c.y);
+  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    const x = cx + dx, y = cy + dy;
+    if (!map.inBounds(x, y)) continue;
+    if (map.roomAt(x, y) !== RoomType.DungeonHeart) continue;
+    const owner = map.ownerAt(x, y);
+    if (owner === c.owner || owner === Owner.None) continue;
+    return map.idx(x, y);
+  }
+  return -1;
+}
+
+/**
+ * Head for the nearest hostile heart, if we are already inside their dungeon.
+ *
+ * This is what a creature dropped into an enemy dungeon does, and it is how the
+ * original's raids resolved: get in, find the heart, break it. Restricting it to
+ * creatures already standing on enemy ground keeps the whole roster from
+ * marching off to war the moment a rival exists.
+ */
+function siegeEnemyHeart(world: AIWorld, c: Creature): boolean {
+  const { map } = world;
+  const cx = Math.round(c.x), cy = Math.round(c.y);
+  const ground = map.ownerAt(cx, cy);
+  if (ground === c.owner || ground === Owner.None || ground === Owner.Heroes) return false;
+
+  const heart = heartTile(map, world.rooms, ground);
+  if (heart < 0) return false;
+  if (!setPathTo(world, c, heart)) return false;
+  c.state = CreatureState.Walking;
+  c.targetTile = heart;
+  return true;
 }
 
 /* ==================================================== regular creatures == */
@@ -424,13 +577,40 @@ function thinkCreature(world: AIWorld, c: Creature): void {
     return;
   }
 
-  // Disgruntled creatures walk out through the portal.
-  if (c.anger >= 100 && c.owner === Owner.Player) {
+  // Standing next to an enemy heart with nobody left to fight? Break it.
+  const heart = adjacentEnemyHeart(world, c);
+  if (heart >= 0) {
+    c.state = CreatureState.AttackingHeart;
+    c.targetTile = heart;
+    c.path = null;
+    return;
+  }
+
+  // Intruders in the dungeon get hunted. This is what turns "some heroes got in"
+  // into a fight that ends, and it is what a keeper's creatures are for.
+  const intruder = findIntruder(world, c, 30);
+  if (intruder) {
+    const tile = map.idx(Math.round(intruder.x), Math.round(intruder.y));
+    if (setPathTo(world, c, tile)) {
+      c.state = CreatureState.Walking;
+      c.targetTile = tile;
+      c.targetCreature = intruder.id;
+      return;
+    }
+  }
+
+  // Disgruntled creatures walk out through the portal. This applies to rival
+  // keepers too: exempting them let a bankrupt rival keep an army it could not
+  // pay for, and it out-grew the player purely by being immune to its own
+  // mistakes.
+  if (c.anger >= 100 && c.owner !== Owner.Heroes) {
     const portal = nearestRoomTile(map, world.rooms, c.owner, RoomType.Portal, ix, iy);
     if (portal >= 0 && setPathTo(world, c, portal)) {
       c.state = CreatureState.LeavingDungeon;
       c.targetTile = portal;
-      world.notify(`Your ${spec.name} is leaving in disgust!`, 'creature-left');
+      if (c.owner === Owner.Player) {
+        world.notify(`Your ${spec.name} is leaving in disgust!`, 'creature-left');
+      }
       return;
     }
   }
@@ -467,6 +647,44 @@ function thinkCreature(world: AIWorld, c: Creature): void {
     // No bed available: that's what makes creatures angry.
     c.anger = Math.min(100, c.anger + 6);
   }
+
+  // Heroes came down here to do something. Left to the code below they had no
+  // job, no lair and nothing to want, so they fell through to `wander` and
+  // pottered about the map at random — which is why a raid never actually
+  // arrived and never actually ended. They march on the nearest keeper's heart,
+  // whoever it belongs to: heroes are everybody's problem.
+  if (c.owner === Owner.Heroes) {
+    if (marchOnNearestHeart(world, c)) return;
+    wander(world, c);
+    return;
+  }
+
+  // Called to arms. This outranks the creature's job because that is the whole
+  // point of the spell: it is how a keeper invades. You cannot drop creatures on
+  // ground you do not own, so without a standing rally there is no way to press
+  // an attack into a rival's dungeon at all.
+  const rally = world.rallyTile(c.owner);
+  if (rally >= 0) {
+    const rx = map.xOf(rally), ry = map.yOf(rally);
+    if (dist2(c.x, c.y, rx, ry) > 9) {
+      if (setPathTo(world, c, rally)) {
+        c.state = CreatureState.Walking;
+        c.targetTile = rally;
+        return;
+      }
+    } else {
+      // Already at the flag: hold the ground instead of drifting home.
+      c.state = CreatureState.Idle;
+      c.path = null;
+      c.thinkCooldown = TICKS_PER_SECOND * 2;
+      return;
+    }
+  }
+
+  // A creature standing in someone else's dungeon is there to wreck it. This is
+  // what the Hand of Evil is for: drop your monsters on a rival's floor and they
+  // go looking for the heart.
+  if (siegeEnemyHeart(world, c)) return;
 
   // Otherwise, do the job this creature is here for.
   for (const job of spec.jobs) {
@@ -611,6 +829,11 @@ export function updateCreature(world: AIWorld, c: Creature, dt: number): void {
 
   if (c.state === CreatureState.Fighting) {
     doFighting(world, c, dt);
+    return;
+  }
+
+  if (c.state === CreatureState.AttackingHeart) {
+    doHeartBreaking(world, c);
     return;
   }
 

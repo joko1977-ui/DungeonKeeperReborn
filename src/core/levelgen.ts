@@ -7,6 +7,7 @@ import {
 } from './constants';
 import { CreatureType, createCreature } from './creatures';
 import { Game } from './game';
+import { generateObjectives } from './objectives';
 import { Rng, valueNoise2D } from './rng';
 import { TileMap } from './tilemap';
 
@@ -17,6 +18,8 @@ export interface LevelOptions {
   /** Gold in the player's treasury at the start. */
   startingGold?: number;
   startingImps?: number;
+  /** 0 gentle, 1 ordinary, 2 nasty. Scales the objective numbers. */
+  difficulty?: number;
 }
 
 /**
@@ -117,10 +120,23 @@ export function generateLevel(opts: LevelOptions = {}): Game {
   // A path leading out of the gate, so heroes aren't sealed in bedrock.
   connect(map, heroGate.x, heroGate.y + 2, heroGate.x, heroGate.y + 9, Owner.None);
 
-  // --- a rival keeper's outpost, for something to fight over --------------
+  // --- a rival keeper's dungeon -------------------------------------------
+  // Given the same opening the player gets: a heart, a treasury to bank into, a
+  // lair and a hatchery. Without those its portal admits nobody and its imps
+  // have nowhere to put gold, and a rival that cannot grow is scenery.
   const rival = { x: Math.round(width * 0.74), y: Math.round(height * 0.72) };
-  carveRoom(map, rival.x - 3, rival.y - 3, rival.x + 3, rival.y + 3, Owner.KeeperBlue);
+  carveRoom(map, rival.x - 4, rival.y - 4, rival.x + 4, rival.y + 4, Owner.KeeperBlue);
   stampRoom(map, rival.x - 1, rival.y - 1, rival.x + 1, rival.y + 1, RoomType.DungeonHeart);
+  stampRoom(map, rival.x + 2, rival.y - 4, rival.x + 4, rival.y - 2, RoomType.Treasury);
+  stampRoom(map, rival.x - 4, rival.y + 2, rival.x - 2, rival.y + 4, RoomType.Lair);
+  stampRoom(map, rival.x + 2, rival.y + 2, rival.x + 4, rival.y + 4, RoomType.Hatchery);
+
+  const rivalPortal = { x: rival.x, y: rival.y - 7 };
+  carveRoom(map, rivalPortal.x - 1, rivalPortal.y - 1,
+    rivalPortal.x + 1, rivalPortal.y + 1, Owner.KeeperBlue);
+  stampRoom(map, rivalPortal.x - 1, rivalPortal.y - 1,
+    rivalPortal.x + 1, rivalPortal.y + 1, RoomType.Portal);
+  connect(map, rival.x, rival.y - 4, rivalPortal.x, rivalPortal.y + 1, Owner.KeeperBlue);
 
   map.version++;
 
@@ -139,10 +155,21 @@ export function generateLevel(opts: LevelOptions = {}): Game {
     game.creatures.push(createCreature(CreatureType.Imp, Owner.Player, x, y));
   }
 
-  // A couple of rivals' imps, so the enemy dungeon grows on its own.
-  for (let i = 0; i < 2; i++) {
-    game.creatures.push(createCreature(CreatureType.Imp, Owner.KeeperBlue, rival.x, rival.y + i));
+  // The rival's own workforce, and a little capital to build with.
+  const blue = game.keeper(Owner.KeeperBlue);
+  blue.gold = 1800;
+  blue.mana = 1000;
+  for (let i = 0; i < 4; i++) {
+    game.creatures.push(
+      createCreature(CreatureType.Imp, Owner.KeeperBlue, rival.x + (i % 2), rival.y + (i >> 1)));
   }
+  game.registerRival(Owner.KeeperBlue);
+
+  // --- the point of the level ---------------------------------------------
+  game.setObjectives(generateObjectives(rng, {
+    rivals: [Owner.KeeperBlue],
+    difficulty: opts.difficulty ?? 1,
+  }));
 
   map.revealRadius(heart.x, heart.y, 12);
   game.notify(

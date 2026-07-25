@@ -115,8 +115,38 @@ Play follows the original's loop:
 6. **Manufacture.** A workshop staffed by trolls or bile demons builds traps
    and doors. Nothing can be placed that has not been built and paid for first,
    so a workshop is worth the floor space and losing one hurts.
-7. **Fight.** Heroes arrive in escalating waves from the hero gate. Lose your
-   Dungeon Heart and the level is over.
+7. **Fight.** Heroes arrive in escalating parties from the hero gate, and they
+   come for your Dungeon Heart — through the earth if you have not left them a
+   route. A rival keeper is digging, building and raiding the whole time.
+8. **Win.** Break every rival keeper's heart and kill the Lord of the Land when
+   he comes down. Lose your own heart and the level is over.
+
+### Objectives
+
+Every generated realm comes with a goal, because a realm without one is a hole
+to dig in rather than a level. The briefing names them, they sit in a card in the
+corner while you play, and the verdict screen says which you met.
+
+The shape is fixed and the numbers are seeded, which is deliberate: goals rolled
+entirely at random read as a chore list. Every realm asks you to break the rival
+keeper and kill the Lord of the Land; two bonus goals are drawn from hoarding
+gold, claiming territory, raising an army of a given level, furnishing every room
+type, and turning back hero raids.
+
+**The Lord of the Land** does not arrive on a timer you can watch. He comes once
+you have turned back a couple of raids and dug a dungeon worth the trip — and, if
+you have been very careful and done neither, eventually anyway, so a cautious game
+still gets an ending. You get a warning first. He brings an escort.
+
+**Rival keepers** run the same loop you do: they order digging, claim what they
+open, build a treasury, lair, hatchery and training room, and send whatever they
+can spare at your heart. They are not clever. The pressure is that they never
+stop.
+
+**Breaking a heart** takes a sustained assault. Since you can only drop creatures
+onto floor you own, invading means digging in and then planting a **Call to
+Arms** — a standing flag your creatures hold until you cast on it again. That is
+the whole attacking game: dig, flag, and get there before the defenders rally.
 
 Rooms available: Treasury, Lair, Hatchery, Training Room, Library, Workshop and
 Bridge. Keeper spells: Create Imp, Heal, Speed, Lightning, Call to Arms and
@@ -207,6 +237,8 @@ src/
     ai.ts          needs-driven creature behaviour
     rooms.ts       placement, selling, room lookup index
     devices.ts     trap and door specs, and the manufacture queue
+    objectives.ts  level goals, progress, and seeded objective sets
+    keeperAi.ts    rival keepers: dig orders, building, raids
     game.ts        the tick, the economy, spells, the Hand of Evil
     levelgen.ts    seeded realm generation
   render/      three.js
@@ -224,7 +256,7 @@ src/
     narrator.ts    speech synthesis, line pools, cue cooldowns
     director.ts    game events -> sound, with rate limiting
   input/       camera control and the Hand of Evil
-  ui/          the keeper's panel, minimap, icons, overlays
+  ui/          the keeper's panel, minimap, icons, overlays, objectives card
 ```
 
 A few decisions worth knowing about:

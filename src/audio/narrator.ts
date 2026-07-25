@@ -116,11 +116,29 @@ const LINES: Record<NarrationCue, string[]> = {
     'They have broken through a door. That was what it was for.',
     'A door has fallen. They are inside.',
   ],
+  'objective-done': [
+    'One objective down. Do not let it go to your head.',
+    'That is one thing done correctly. There are others.',
+    'Objective complete. I am as surprised as you are.',
+  ],
+  'lord-approaching': [
+    'Beware. The Lord of the Land approaches, and he has brought an army.',
+    'The Lord of the Land is coming down here. This is the part that matters.',
+  ],
+  'lord-slain': [
+    'The Lord of the Land is dead. The surface has lost its favourite son.',
+    'Their Lord is broken on your floor. Let them come and collect him.',
+  ],
+  'keeper-defeated': [
+    'A rival keeper is finished. Their creatures have nobody to answer to.',
+    'Another keeper\'s heart has stopped. There is more room in the world now.',
+  ],
 };
 
 /** Cues that must never be dropped, however busy the narrator is. */
 const HIGH_PRIORITY: ReadonlySet<NarrationCue> = new Set<NarrationCue>([
   'level-start', 'victory', 'defeat', 'heroes', 'payday-broke', 'door-broken',
+  'lord-approaching', 'lord-slain', 'keeper-defeated', 'objective-done',
 ]);
 
 /** Minimum gap between repeats of the same cue, in milliseconds. */
@@ -133,6 +151,7 @@ const CUE_COOLDOWN: Partial<Record<NarrationCue, number>> = {
   'treasury-full': 40000,
   'creature-left': 20000,
   manufactured: 20000,
+  'objective-done': 6000,
   'trap-fired': 18000,
   'door-broken': 15000,
 };

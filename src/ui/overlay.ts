@@ -1,3 +1,6 @@
+import { TICKS_PER_SECOND } from '../core/constants';
+import { Objective, objectiveBriefing, objectiveDetail } from '../core/objectives';
+
 /**
  * Full-screen overlays: the opening briefing and the end-of-level verdict.
  *
@@ -20,11 +23,13 @@ export function showBriefing(
   container: HTMLElement,
   onDismiss: () => void,
   returning: boolean,
+  objectives: readonly Objective[] = [],
 ): void {
   const overlay = ensureOverlay(container);
   overlay.classList.remove('hidden');
   overlay.innerHTML = `
     <div class="overlay-card">
+      <div class="overlay-scroll">
       <h1>Dungeon Keeper Reborn</h1>
       <h2>${returning ? 'Controls' : 'The realm above is far too cheerful'}</h2>
       ${returning ? '' : `
@@ -34,7 +39,8 @@ export function showBriefing(
           a lair and a hatchery, and creatures will come to you through the
           portal — feed them, pay them, and they may even fight for you when the
           heroes arrive. They always arrive.
-        </p>`}
+        </p>
+        ${briefingObjectives(objectives)}`}
       <dl class="keys">
         <dt>Left click</dt><dd>Tag walls for excavation — drag to tag a whole slab</dd>
         <dt>Left click</dt><dd>Snatch up one of your creatures; click again to drop it on your floor</dd>
@@ -52,6 +58,7 @@ export function showBriefing(
         through your system voice — so he will not sound like the one you
         remember, but he is no fonder of you.
       </p>
+      </div>
       <button class="big-button" id="overlay-dismiss">
         ${returning ? 'Back to the dungeon' : 'Begin'}
       </button>
@@ -64,21 +71,65 @@ export function showBriefing(
   });
 }
 
+/** The objectives, as the briefing lays them out. */
+function briefingObjectives(objectives: readonly Objective[]): string {
+  if (objectives.length === 0) return '';
+  const primary = objectives.filter((o) => o.primary);
+  const bonus = objectives.filter((o) => !o.primary);
+
+  const rows = (list: readonly Objective[]): string => list
+    .map((o) => `<dt>${o.text}</dt><dd>${objectiveBriefing(o)}</dd>`)
+    .join('');
+
+  return `
+    <h3 class="brief-heading">To take this realm</h3>
+    <dl class="objectives">${rows(primary)}</dl>
+    ${bonus.length === 0 ? '' : `
+      <h3 class="brief-heading">Worth doing anyway</h3>
+      <dl class="objectives bonus">${rows(bonus)}</dl>`}
+    <p class="brief-note">
+      Lose your Dungeon Heart and none of it matters. The goals are also listed
+      in the corner of the screen while you play.
+    </p>`;
+}
+
 /** The verdict screen, shown when the heart falls or the realm is won. */
 export function showOutcome(
   container: HTMLElement,
   status: 'won' | 'lost',
   onRestart: () => void,
+  objectives: readonly Objective[] = [],
+  elapsedTicks = 0,
 ): void {
   const overlay = ensureOverlay(container);
   overlay.classList.remove('hidden');
   const won = status === 'won';
+
+  const seconds = Math.round(elapsedTicks / TICKS_PER_SECOND);
+  const time = `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+  const met = objectives.filter((o) => o.done).length;
+
+  // A verdict that only says won or lost teaches nothing. Showing which goals
+  // landed and which did not is how a player works out what to do differently.
+  const scoreboard = objectives.length === 0 ? '' : `
+    <dl class="objectives outcome">
+      ${objectives.map((o) => {
+        const detail = objectiveDetail(o);
+        return `<dt class="${o.done ? 'met' : 'missed'}">${o.done ? '✓' : '✕'} ${o.text}</dt>`
+          + `<dd>${o.done ? 'done' : (detail || 'not achieved')}</dd>`;
+      }).join('')}
+    </dl>
+    <p class="brief-note">${met} of ${objectives.length} objectives met in ${time}.</p>`;
+
   overlay.innerHTML = `
     <div class="overlay-card">
+      <div class="overlay-scroll">
       <h1>${won ? 'The realm is yours' : 'Your heart is broken'}</h1>
       <h2>${won
         ? 'The heroes are scattered and the land above has learned to be afraid.'
         : 'The last of your dungeon goes dark. Somewhere, a knight is being congratulated.'}</h2>
+      ${scoreboard}
+      </div>
       <button class="big-button" id="overlay-restart">Dig again</button>
     </div>`;
 
