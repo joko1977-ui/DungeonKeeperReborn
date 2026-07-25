@@ -55,7 +55,7 @@ export interface AIWorld {
   isLairFree(tile: number): boolean;
 
   addResearch(owner: Owner, points: number): void;
-  notify(message: string): void;
+  notify(message: string, cue?: string): void;
   /** Fire off a one-shot visual: 'dig' | 'claim' | 'hit' | 'gold' | 'sleep' | 'poof'. */
   effect(kind: string, x: number, y: number): void;
   onCreatureDied(creature: Creature): void;
@@ -194,7 +194,8 @@ function levelUpIfReady(world: AIWorld, c: Creature): void {
     c.hp = maxHpOf(c);
     world.effect('levelup', c.x, c.y);
     if (c.owner === Owner.Player) {
-      world.notify(`Your ${CREATURE_SPECS[c.type].name} has reached level ${c.level}.`);
+      world.notify(`Your ${CREATURE_SPECS[c.type].name} has reached level ${c.level}.`,
+        'creature-levelled');
     }
   }
 }
@@ -410,7 +411,7 @@ function thinkCreature(world: AIWorld, c: Creature): void {
     if (portal >= 0 && setPathTo(world, c, portal)) {
       c.state = CreatureState.LeavingDungeon;
       c.targetTile = portal;
-      world.notify(`Your ${spec.name} is leaving in disgust!`);
+      world.notify(`Your ${spec.name} is leaving in disgust!`, 'creature-left');
       return;
     }
   }
@@ -526,7 +527,7 @@ function creatureWorkAtTarget(world: AIWorld, c: Creature): boolean {
     case RoomType.Portal:
       if (c.state === CreatureState.LeavingDungeon) {
         world.effect('poof', c.x, c.y);
-        world.notify(`Your ${CREATURE_SPECS[c.type].name} has abandoned you.`);
+        world.notify(`Your ${CREATURE_SPECS[c.type].name} has abandoned you.`, 'creature-left');
         c.hp = 0;
         c.state = CreatureState.Dying;
         c.stateTimer = 100; // skip the death animation; it walked out

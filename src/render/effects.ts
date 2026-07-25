@@ -256,6 +256,7 @@ export class ParticleSystem {
   private readonly positions = new Float32Array(MAX_PARTICLES * 3);
   private readonly colors = new Float32Array(MAX_PARTICLES * 3);
   private consumed = 0;
+  private highestSeen = 0;
 
   constructor() {
     this.geometry = new THREE.BufferGeometry();
@@ -279,14 +280,15 @@ export class ParticleSystem {
 
   /** Turn queued game events into particles, then step the simulation. */
   update(effects: readonly GameEffect[], dt: number): void {
-    // Only look at events we haven't already turned into particles.
-    for (let i = this.consumed; i < effects.length; i++) {
-      const e = effects[i];
-      if (e.age === 0) this.spawn(e.kind, e.x, e.y);
+    // Effects carry a monotonic id because the game splices finished ones out
+    // of the middle of the list — tracking a position into the array would
+    // silently skip events every time it shrank.
+    for (const e of effects) {
+      if (e.seq <= this.consumed) continue;
+      this.spawn(e.kind, e.x, e.y);
+      if (e.seq > this.highestSeen) this.highestSeen = e.seq;
     }
-    // The game trims its own effect list, so track by identity length.
-    this.consumed = effects.length;
-    if (this.consumed > effects.length) this.consumed = 0;
+    this.consumed = this.highestSeen;
 
     let write = 0;
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -319,9 +321,10 @@ export class ParticleSystem {
     (this.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  /** Reset the event cursor — call when the effects list is rebuilt. */
+  /** Reset the event cursor — call when starting a fresh level. */
   resetCursor(): void {
     this.consumed = 0;
+    this.highestSeen = 0;
   }
 
   spawn(kind: string, x: number, y: number): void {

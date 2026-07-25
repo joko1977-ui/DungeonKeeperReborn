@@ -165,6 +165,30 @@ if (hatchery) {
     { refund: game.goldOf(Owner.Player) - before });
 }
 
+/* -- narration cues ------------------------------------------------------ */
+
+// The narrator is driven by cues on messages, not by string-matching the log.
+// If a notification loses its cue, the narrator silently goes quiet, so the
+// wiring is worth asserting here where it is cheap to check.
+const cued = game.messages.filter((m) => m.cue !== undefined);
+check('notifications carry narrator cues', cued.length > 0,
+  { cued: cued.length, total: game.messages.length });
+check('the opening line is cued',
+  game.messages.some((m) => m.cue === 'level-start'));
+
+const seenCues = new Set(game.messages.map((m) => m.cue).filter(Boolean));
+check('several distinct cues fired during play', seenCues.size >= 3,
+  { cues: [...seenCues] });
+
+/* -- effect stream ------------------------------------------------------- */
+
+// Both the particle system and the mixer read this list by sequence number,
+// because the game splices finished effects out of the middle of it.
+const seqs = game.effects.map((e) => e.seq);
+check('effects carry increasing sequence ids',
+  seqs.every((v, i) => i === 0 || v > seqs[i - 1]), { sample: seqs.slice(0, 5) });
+check('sequence ids are unique', new Set(seqs).size === seqs.length);
+
 /* -- heroes and stability ------------------------------------------------ */
 
 run(6000, game);

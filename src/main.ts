@@ -11,6 +11,9 @@ import { CreatureRenderer } from './render/creatureRenderer';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
 import { TerrainRenderer } from './render/terrain';
+import { AudioEngine } from './audio/audio';
+import { AudioDirector } from './audio/director';
+import { Narrator } from './audio/narrator';
 import { Hud } from './ui/hud';
 import { showBriefing, showOutcome } from './ui/overlay';
 
@@ -42,6 +45,10 @@ rig.scene.add(terrain.group);
 rig.scene.add(creatureRenderer.group);
 rig.scene.add(torches.group);
 rig.scene.add(particles.points);
+
+const audio = new AudioEngine();
+const narrator = new Narrator(audio);
+const director = new AudioDirector(game, audio, narrator);
 
 const camera = new CameraController(rig.camera, canvas, game.map.width, game.map.height);
 const start = game.startView();
@@ -79,6 +86,8 @@ topbar.innerHTML = `
   <span class="spacer"></span>
   <span class="chip" id="chip-payday">Payday in <b>—</b></span>
   <span class="chip" id="chip-fps"><b>—</b> fps</span>
+  <button class="icon-button" id="btn-sound" title="Mute or unmute all sound">Sound</button>
+  <button class="icon-button" id="btn-voice" title="Silence the narrator">Narrator</button>
   <button class="icon-button" id="btn-help">Controls</button>
   <button class="icon-button" id="btn-pause">Pause</button>`;
 uiRoot.appendChild(topbar);
@@ -87,14 +96,47 @@ const paydayChip = topbar.querySelector('#chip-payday b') as HTMLElement;
 const fpsChip = topbar.querySelector('#chip-fps b') as HTMLElement;
 const pauseButton = topbar.querySelector('#btn-pause') as HTMLButtonElement;
 const helpButton = topbar.querySelector('#btn-help') as HTMLButtonElement;
+const soundButton = topbar.querySelector('#btn-sound') as HTMLButtonElement;
+const voiceButton = topbar.querySelector('#btn-voice') as HTMLButtonElement;
+
+function refreshAudioButtons(): void {
+  const muted = audio.getSettings().muted;
+  soundButton.textContent = muted ? 'Sound off' : 'Sound';
+  soundButton.classList.toggle('is-off', muted);
+  const speaking = narrator.isEnabled() && narrator.available;
+  voiceButton.textContent = narrator.available
+    ? (speaking ? 'Narrator' : 'Narrator off')
+    : 'No voice';
+  voiceButton.classList.toggle('is-off', !speaking);
+  voiceButton.disabled = !narrator.available;
+  voiceButton.title = narrator.available
+    ? `Narrator voice: ${narrator.voiceName}`
+    : 'This browser has no speech synthesis; the message log still works.';
+}
+
+soundButton.addEventListener('click', () => {
+  audio.setMuted(!audio.getSettings().muted);
+  if (audio.getSettings().muted) narrator.stop();
+  refreshAudioButtons();
+});
+voiceButton.addEventListener('click', () => {
+  narrator.setEnabled(!narrator.isEnabled());
+  refreshAudioButtons();
+});
+refreshAudioButtons();
 
 let paused = false;
 function setPaused(value: boolean): void {
   paused = value;
   pauseButton.textContent = paused ? 'Resume' : 'Pause';
+  // A paused dungeon should go quiet, narrator included.
+  audio.setSuspended(paused);
+  if (paused) narrator.stop();
 }
 pauseButton.addEventListener('click', () => setPaused(!paused));
-helpButton.addEventListener('click', () => showBriefing(uiRoot!, () => setPaused(false), true));
+helpButton.addEventListener('click', () => showBriefing(uiRoot!, () => {
+  setPaused(false);
+}, true));
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !(e.target instanceof HTMLButtonElement)) {
@@ -151,6 +193,10 @@ function frame(): void {
     canvas!.dataset.cursor = cursor;
   }
 
+  if (!paused) {
+    director.update(camera.target.x, camera.target.z, camera.getDistance(), dt);
+  }
+
   hud.update();
   hud.minimap.draw(camera.target.x, camera.target.z, camera.getYaw(), camera.getDistance());
 
@@ -178,8 +224,15 @@ function frame(): void {
   rig.render();
 }
 
-// Open on the briefing, the way the original opens on its scroll.
-showBriefing(uiRoot, () => setPaused(false), false);
+// Open on the briefing, the way the original opens on its scroll. Its dismiss
+// button is also where audio gets unlocked: browsers refuse to start an
+// AudioContext outside a real user gesture, and this is the first one we get.
+showBriefing(uiRoot, () => {
+  audio.unlock();
+  refreshAudioButtons();
+  setPaused(false);
+  director.begin();
+}, false);
 setPaused(true);
 frame();
 window.dispatchEvent(new Event('dk-ready'));
@@ -189,14 +242,23 @@ window.dispatchEvent(new Event('dk-ready'));
 // Handy for poking at a running game from the console.
 declare global {
   interface Window {
-    dk?: { game: Game; camera: CameraController; rig: SceneRig };
+    dk?: {
+      game: Game;
+      camera: CameraController;
+      rig: SceneRig;
+      audio: AudioEngine;
+      narrator: Narrator;
+      director: AudioDirector;
+    };
   }
 }
-window.dk = { game, camera, rig };
+window.dk = { game, camera, rig, audio, narrator, director };
 
 // Keep hot-module reloads from stacking up renderers during development.
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    narrator.dispose();
+    audio.dispose();
     hand.dispose();
     camera.dispose();
     hud.dispose();

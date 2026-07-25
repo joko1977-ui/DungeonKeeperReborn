@@ -145,7 +145,8 @@ export function generateLevel(opts: LevelOptions = {}): Game {
   }
 
   map.revealRadius(heart.x, heart.y, 12);
-  game.notify('Your Dungeon Heart beats. Tag walls to dig, and claim what you dig.');
+  game.notify(
+    'Your Dungeon Heart beats. Tag walls to dig, and claim what you dig.', 'level-start');
 
   return game;
 }

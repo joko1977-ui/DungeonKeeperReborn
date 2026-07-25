@@ -34,18 +34,32 @@ import { PathFinder } from './pathfinding';
 import { RoomIndex, buildRoom, heartTile, nearestRoomTile, sellRoom, treasuryCapacity } from './rooms';
 import { TileMap } from './tilemap';
 
-/** A transient visual event the renderer picks up and turns into particles. */
+/** A transient event the renderer turns into particles and the mixer into sound. */
 export interface GameEffect {
   kind: string;
   x: number;
   y: number;
   age: number;
+  /**
+   * Monotonic id. Consumers remember the last one they handled, which is the
+   * only reliable way to read this list: the game splices finished effects out
+   * from the middle, so array positions shift underneath anyone watching.
+   */
+  seq: number;
 }
+
+/** Narrator cue keys. The audio layer maps these to spoken lines. */
+export type NarrationCue =
+  | 'level-start' | 'creature-joined' | 'creature-left' | 'creature-died'
+  | 'creature-levelled' | 'payday' | 'payday-broke' | 'treasury-full'
+  | 'heroes' | 'victory' | 'defeat' | 'no-mana' | 'bad-placement';
 
 /** A line in the message log, shown in the panel like the original's ticker. */
 export interface GameMessage {
   text: string;
   tick: number;
+  /** What the narrator should say about it, if anything. */
+  cue?: NarrationCue;
 }
 
 interface Keeper {
@@ -118,7 +132,8 @@ export class Game implements AIWorld {
     const stored = Math.min(amount, room);
     k.gold += stored;
     if (stored < amount && owner === Owner.Player) {
-      this.notifyThrottled('Your treasury is full. Build more treasure rooms!', 'treasury-full');
+      this.notifyThrottled(
+        'Your treasury is full. Build more treasure rooms!', 'treasury-full', 'treasury-full');
     }
     return stored;
   }
@@ -164,23 +179,25 @@ export class Game implements AIWorld {
     this.keeper(owner).research += points;
   }
 
-  notify(message: string): void {
-    this.messages.push({ text: message, tick: this.tickCount });
+  notify(message: string, cue?: NarrationCue): void {
+    this.messages.push({ text: message, tick: this.tickCount, cue });
     if (this.messages.length > 60) this.messages.shift();
   }
 
   private lastNotified = new Map<string, number>();
   /** Notify at most once every 15 seconds per key, so nags don't spam the log. */
-  private notifyThrottled(message: string, key: string): void {
+  private notifyThrottled(message: string, key: string, cue?: NarrationCue): void {
     const last = this.lastNotified.get(key) ?? -Infinity;
     if (this.tickCount - last < TICKS_PER_SECOND * 15) return;
     this.lastNotified.set(key, this.tickCount);
-    this.notify(message);
+    this.notify(message, cue);
   }
+
+  private effectSeq = 0;
 
   effect(kind: string, x: number, y: number): void {
     if (this.effects.length > 400) return;
-    this.effects.push({ kind, x, y, age: 0 });
+    this.effects.push({ kind, x, y, age: 0, seq: ++this.effectSeq });
   }
 
   onCreatureDied(creature: Creature): void {
@@ -189,7 +206,7 @@ export class Game implements AIWorld {
     if (i >= 0) this.creatures.splice(i, 1);
     this.effect('poof', creature.x, creature.y);
     if (creature.owner === Owner.Player) {
-      this.notify(`Your ${CREATURE_SPECS[creature.type].name} has died.`);
+      this.notify(`Your ${CREATURE_SPECS[creature.type].name} has died.`, 'creature-died');
     }
   }
 
@@ -268,12 +285,12 @@ export class Game implements AIWorld {
 
     if (k.gold >= owed) {
       k.gold -= owed;
-      if (owner === Owner.Player) this.notify(`Payday! You paid ${owed} gold in wages.`);
+      if (owner === Owner.Player) this.notify(`Payday! You paid ${owed} gold in wages.`, 'payday');
       for (const c of mine) c.anger = Math.max(0, c.anger - 10);
     } else {
       k.gold = 0;
       if (owner === Owner.Player) {
-        this.notify('You cannot afford to pay your creatures! They are furious.');
+        this.notify('You cannot afford to pay your creatures! They are furious.', 'payday-broke');
       }
       for (const c of mine) c.anger = Math.min(100, c.anger + 35);
     }
@@ -317,7 +334,7 @@ export class Game implements AIWorld {
     this.creatures.push(c);
     this.effect('poof', c.x, c.y);
     if (owner === Owner.Player) {
-      this.notify(`A ${CREATURE_SPECS[type].name} has entered your dungeon.`);
+      this.notify(`A ${CREATURE_SPECS[type].name} has entered your dungeon.`, 'creature-joined');
     }
   }
 
@@ -340,7 +357,7 @@ export class Game implements AIWorld {
       c.hp = maxHpOf(c);
       this.creatures.push(c);
     }
-    this.notify(`Heroes have entered the realm! Wave ${this.heroWaveNumber}.`);
+    this.notify(`Heroes have entered the realm! Wave ${this.heroWaveNumber}.`, 'heroes');
     this.effect('poof', gx, gy);
   }
 
@@ -349,14 +366,14 @@ export class Game implements AIWorld {
     const playerHeart = heartTile(this.map, this.rooms, Owner.Player);
     if (playerHeart < 0) {
       this.status = 'lost';
-      this.notify('Your Dungeon Heart has been destroyed. You have failed.');
+      this.notify('Your Dungeon Heart has been destroyed. You have failed.', 'defeat');
       return;
     }
     const heroesLeft = this.creatures.some((c) => c.owner === Owner.Heroes);
     const heroGates = this.rooms.count(this.map, Owner.Heroes, RoomType.Portal);
     if (!heroesLeft && heroGates === 0 && this.heroWaveNumber > 0) {
       this.status = 'won';
-      this.notify('The realm is yours. The heroes are broken.');
+      this.notify('The realm is yours. The heroes are broken.', 'victory');
     }
   }
 
@@ -468,7 +485,7 @@ export class Game implements AIWorld {
     const k = this.keeper(Owner.Player);
     const cost = this.spellCost(type);
     if (k.mana < cost) {
-      this.notifyThrottled('Not enough mana.', 'mana');
+      this.notifyThrottled('Not enough mana.', 'mana', 'no-mana');
       return false;
     }
     const tx = Math.round(x), ty = Math.round(y);
@@ -477,7 +494,8 @@ export class Game implements AIWorld {
       case SpellType.CreateImp: {
         if (this.map.terrainAt(tx, ty) !== Terrain.Claimed
           || this.map.ownerAt(tx, ty) !== Owner.Player) {
-          this.notifyThrottled('Imps can only be summoned onto your own floor.', 'imp-place');
+          this.notifyThrottled(
+            'Imps can only be summoned onto your own floor.', 'imp-place', 'bad-placement');
           return false;
         }
         const c = createCreature(CreatureType.Imp, Owner.Player, tx, ty);

@@ -44,7 +44,13 @@ export function showBriefing(
         <dt>R / F / C</dt><dd>Rooms, spells and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
         <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
         <dt>Touch</dt><dd>Drag to pan, pinch to zoom, twist to rotate</dd>
+        <dt>Sound</dt><dd>Toggle the mix and the narrator from the top right</dd>
       </dl>
+      <p style="font-size:12px;opacity:0.6;margin-top:-4px">
+        Every sound here is synthesised in your browser, and the narrator speaks
+        through your system voice — so he will not sound like the one you
+        remember, but he is no fonder of you.
+      </p>
       <button class="big-button" id="overlay-dismiss">
         ${returning ? 'Back to the dungeon' : 'Begin'}
       </button>

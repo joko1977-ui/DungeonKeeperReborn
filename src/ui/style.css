@@ -425,6 +425,18 @@ html, body {
 }
 .icon-button:hover { color: var(--gold); border-color: var(--bronze-light); }
 
+/* A toggle that is currently off reads as struck through, not just dimmer. */
+.icon-button.is-off {
+  color: #6b5f4e;
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 /* ------------------------------------------------------------- overlay -- */
 
 #overlay {

@@ -63,6 +63,7 @@ reproduced exactly.
 | **R** / **F** / **C** | Rooms, Spells and Creatures tabs. **1–9** picks from the open tab. |
 | **Space** | Pause. **Esc** puts down the selected tool. |
 | **Touch** | Drag to pan, pinch to zoom, twist to rotate. |
+| **Top right** | Toggle the sound mix and the narrator. |
 
 ## How the game works
 
@@ -86,6 +87,58 @@ Play follows the original's loop:
 Rooms available: Treasury, Lair, Hatchery, Training Room, Library and Bridge.
 Keeper spells: Create Imp, Heal, Speed, Lightning, Call to Arms and Possess.
 
+## Sound
+
+All of it is synthesised in the browser. No audio files ship with the game, for
+the same reasons no images do.
+
+**Ambience** is a continuous bed: a low detuned drone through a slowly breathing
+filter, cave rumble from brown noise, torch crackle, and water drips fed mostly
+into a reverb built from a synthetic impulse response, so they land as
+*somewhere down the corridor* rather than next to your ear.
+
+**Score** is a slow four-chord progression in a natural minor, played on long
+overlapping pads that never quite resolve. Underneath it is the Dungeon Heart —
+a two-thump pulse that **quickens as hostile creatures get closer to your
+heart**. It is the cheapest warning system in the game and you feel it before
+you read anything.
+
+**Effects** are one-shots built from oscillators and shaped noise, panned and
+attenuated by where they happened relative to the camera; anything past the
+camera's reach is dropped entirely. Because a dozen imps generate dig events
+several times a second each, every sound has a minimum spacing and the mix has a
+per-frame voice cap — otherwise a working dungeon is just noise. A limiter on
+the master bus keeps a busy fight from clipping.
+
+### About the narrator
+
+The original's voice is a performance by a specific actor. That is not something
+this project can or should reproduce, and no attempt is made to imitate it.
+
+What *is* reproduced is the role it played: a dry, faintly contemptuous presence
+that comments on your dungeon and is never quite on your side. Delivery goes
+through your platform's own speech synthesiser — pitched well down and slowed,
+preferring a deep English voice where the system has one. The writing is
+original.
+
+So he will not sound like the narrator you remember. He is, however, no fonder
+of you:
+
+> *"Payday. Your creatures are briefly tolerable."*
+> *"Heroes. They have come to be reasonable at you. Kill them."*
+> *"Your heart is broken. Somewhere a knight is being given a medal."*
+
+Narration is event-driven: game notifications carry a typed cue, and the
+narrator maps cues to lines with per-cue cooldowns and several variants each, so
+a long game does not become one sentence on a loop. Low-priority remarks are
+dropped rather than queued while something important is being said, and the
+ambience ducks under the voice.
+
+Everything degrades quietly. No Web Audio, no speech synthesis, no voices
+installed, or a player who has simply turned it off — the game runs silent and
+the printed message log carries on doing its job. Audio only starts on a real
+click, because browsers refuse otherwise.
+
 ## How it is built
 
 ```
@@ -106,6 +159,11 @@ src/
     creatureRenderer.ts instanced drawing and procedural animation
     effects.ts         torches, dynamic lights, particles
     scene.ts           renderer, lighting rig, post-processing
+  audio/       the soundscape, all synthesised
+    synth.ts       noise buffers, cave impulse response, envelopes
+    audio.ts       buses, ambience, score, positional one-shots
+    narrator.ts    speech synthesis, line pools, cue cooldowns
+    director.ts    game events -> sound, with rate limiting
   input/       camera control and the Hand of Evil
   ui/          the keeper's panel, minimap, icons, overlays
 ```
@@ -127,6 +185,8 @@ A few decisions worth knowing about:
 - **Torches are cheap.** Every wall bordering claimed floor gets a glowing
   point, but only the nine nearest the camera are promoted to real dynamic
   lights.
+- **Nothing is an asset.** Textures, creature meshes, icons, cursors and every
+  sound are generated at runtime. The whole game is code.
 
 Quality settings are chosen from the device: phones and low-core machines drop
 bloom, shadows and pixel ratio automatically.
