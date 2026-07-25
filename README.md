@@ -186,7 +186,7 @@ src/
   render/      three.js
     textures.ts        every material, generated procedurally at load
     terrain.ts         the whole dungeon in two instanced draw calls
-    creatureModels.ts  creature meshes built from primitives
+    creatureModels.ts  creature meshes built from primitives (25-40 parts each)
     creatureRenderer.ts instanced drawing and procedural animation
     roomProps.ts       room furniture — heaps, nests, dummies, the Heart
     effects.ts         torches, dynamic lights, particles
@@ -219,6 +219,13 @@ A few decisions worth knowing about:
   lights.
 - **Nothing is an asset.** Textures, creature meshes, room furniture, icons,
   cursors and every sound are generated at runtime. The whole game is code.
+- **Creatures are sculpted, not assembled from spheres.** Each species is 25-40
+  primitives built from real anatomy — a jaw hung off the skull, a browline,
+  shoulders wider than the head, tapering segmented tails, hands with
+  individual claws, and the gear each one would carry (the warlock's staff and
+  chained book, the dwarf's pick, the knight's plumed helm, shield and sword).
+  Detail is affordable because geometry is uploaded once per species and then
+  instanced: extra parts cost vertex transform, never draw calls.
 - **Rooms are furnished, not just retextured.** Each room tile carries a piece
   of instanced furniture — gold heaps that visibly grow as the vault fills,
   straw nests, egg clutches, training dummies, bookshelves — with per-tile

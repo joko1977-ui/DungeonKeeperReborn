@@ -7,9 +7,18 @@ import { CreatureType } from '../core/creatures';
  *
  * Each type produces three merged geometries — body, a limb that gets mirrored,
  * and a pair of glowing eyes — so a whole species renders in three instanced
- * draw calls no matter how many of them are running about. The silhouettes are
- * deliberately chunky and readable from the game's usual camera height, which
- * is what the sprites they stand in for were built to do.
+ * draw calls no matter how many of them are running about.
+ *
+ * The models are stylised, not realistic, but they are built from real anatomy:
+ * a jaw that opens off the skull, a browline, shoulders wider than the head,
+ * tapering tails, hands with individual claws, and the gear each species would
+ * actually carry. That detail is what separates a troll from a bile demon at a
+ * glance, and a pile of spheres does not do it.
+ *
+ * Detail is affordable because geometry is uploaded once per species and then
+ * instanced: extra parts cost vertex transform, never draw calls. Small
+ * decorative pieces drop to four or five segments to keep the totals sane on a
+ * tablet.
  */
 
 export interface CreatureModel {
@@ -49,8 +58,8 @@ export class PartBuilder {
   }
 
   sphere(r: number, x: number, y: number, z: number, color: number,
-    sx = 1, sy = 1, sz = 1): this {
-    const g = new THREE.SphereGeometry(r, 10, 8);
+    sx = 1, sy = 1, sz = 1, seg = 9): this {
+    const g = new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2));
     g.scale(sx, sy, sz);
     g.translate(x, y, z);
     this.push(g, color);
@@ -69,8 +78,8 @@ export class PartBuilder {
   }
 
   cone(r: number, h: number, x: number, y: number, z: number, color: number,
-    rx = 0, ry = 0, rz = 0): this {
-    const g = new THREE.ConeGeometry(r, h, 8);
+    rx = 0, ry = 0, rz = 0, seg = 7): this {
+    const g = new THREE.ConeGeometry(r, h, seg);
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
@@ -80,8 +89,8 @@ export class PartBuilder {
   }
 
   cylinder(rt: number, rb: number, h: number, x: number, y: number, z: number, color: number,
-    rx = 0, ry = 0, rz = 0): this {
-    const g = new THREE.CylinderGeometry(rt, rb, h, 8);
+    rx = 0, ry = 0, rz = 0, seg = 7): this {
+    const g = new THREE.CylinderGeometry(rt, rb, h, seg);
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
@@ -128,229 +137,578 @@ function eyePair(y: number, z: number, spread: number, r: number): THREE.BufferG
 
 /* --------------------------------------------------------------- models -- */
 
+/*
+ * Each species is 25-40 primitives rather than the half-dozen it started as.
+ * The budget goes on the things that make a silhouette readable at the game's
+ * camera height: a jaw, a browline, back spines, a tail that tapers, hands
+ * with claws, and gear. Small decorative parts drop to 5-6 segments, which is
+ * what pays for the extra count — geometry is uploaded once per species and
+ * instanced, so detail costs vertex transform, not draw calls.
+ */
+
+/** A swept pair of horns, mirrored about x. */
+function horns(
+  b: PartBuilder, r: number, h: number, x: number, y: number, z: number,
+  color: number, tilt: number, sweep: number,
+): void {
+  b.cone(r, h, -x, y, z, color, tilt, 0, sweep, 5);
+  b.cone(r, h, x, y, z, color, tilt, 0, -sweep, 5);
+}
+
+/** A row of shrinking dorsal spines running back along -z. */
+function dorsalSpines(
+  b: PartBuilder, count: number, z0: number, dz: number,
+  y: number, dy: number, r: number, h: number, color: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const t = i / Math.max(1, count - 1);
+    b.cone(r * (1 - t * 0.55), h * (1 - t * 0.5),
+      0, y + dy * i, z0 + dz * i, color, -0.25, 0, 0, 5);
+  }
+}
+
+/** A tapering segmented tail curving away behind the creature. */
+function tail(
+  b: PartBuilder, segments: number, x: number, y: number, z: number,
+  r: number, step: number, drop: number, color: number, tipColor: number,
+): void {
+  for (let i = 0; i < segments; i++) {
+    const t = i / segments;
+    b.sphere(r * (1 - t * 0.62), x, y - drop * i, z - step * i, color,
+      1, 0.9, 1.25, 6);
+  }
+  b.cone(r * 0.6, r * 2.4, x, y - drop * segments, z - step * segments,
+    tipColor, -1.25, 0, 0, 5);
+}
+
+/** Two upward tusks. */
+function tusks(
+  b: PartBuilder, r: number, h: number, x: number, y: number, z: number, color: number,
+): void {
+  b.cone(r, h, -x, y, z, color, -2.5, 0, 0.18, 5);
+  b.cone(r, h, x, y, z, color, -2.5, 0, -0.18, 5);
+}
+
+/* --------------------------------------------------------------- worker -- */
+
 function buildImp(color: number, accent: number): CreatureModel {
   const b = new PartBuilder();
-  // Hunched torso and oversized head — the original's put-upon little worker.
-  b.sphere(0.30, 0, 0.34, 0, color, 1, 0.95, 1.05);
-  b.sphere(0.24, 0, 0.66, 0.06, color, 1.1, 1, 1);
-  // Ears, swept back.
-  b.cone(0.09, 0.30, -0.20, 0.78, -0.04, accent, 0, 0, 0.9);
-  b.cone(0.09, 0.30, 0.20, 0.78, -0.04, accent, 0, 0, -0.9);
-  // Snout and tail.
-  b.cone(0.10, 0.16, 0, 0.62, 0.24, accent, Math.PI / 2, 0, 0);
-  b.cone(0.06, 0.34, 0, 0.30, -0.28, accent, -0.9, 0, 0);
+  const belly = 0xe08a5a;
+  // Hunched, top-heavy little worker: shoulders forward, spine curved.
+  b.sphere(0.31, 0, 0.36, -0.02, color, 1.05, 0.95, 1.0);
+  b.sphere(0.24, 0, 0.30, 0.16, belly, 1.0, 0.9, 0.75, 7);
+  b.sphere(0.17, -0.24, 0.50, 0, color, 1, 0.9, 1, 7);
+  b.sphere(0.17, 0.24, 0.50, 0, color, 1, 0.9, 1, 7);
+  // Head: cranium, heavy brow, snout and an underbite.
+  b.sphere(0.25, 0, 0.70, 0.05, color, 1.1, 1.0, 1.0);
+  b.box(0.34, 0.07, 0.16, 0, 0.78, 0.16, accent);
+  b.cone(0.13, 0.22, 0, 0.63, 0.24, color, Math.PI / 2, 0, 0, 6);
+  b.sphere(0.11, 0, 0.57, 0.22, belly, 1.2, 0.7, 1, 6);
+  b.cone(0.028, 0.07, -0.055, 0.60, 0.30, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+  b.cone(0.028, 0.07, 0.055, 0.60, 0.30, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+  // Big swept ears with a paler inner surface.
+  b.cone(0.10, 0.36, -0.22, 0.82, -0.06, accent, -0.35, 0, 0.95, 5);
+  b.cone(0.10, 0.36, 0.22, 0.82, -0.06, accent, -0.35, 0, -0.95, 5);
+  b.cone(0.055, 0.24, -0.21, 0.81, -0.03, belly, -0.35, 0, 0.95, 4);
+  b.cone(0.055, 0.24, 0.21, 0.81, -0.03, belly, -0.35, 0, -0.95, 4);
+  // Horn nubs, spine ridge and a spade-tipped tail.
+  horns(b, 0.035, 0.10, 0.10, 0.88, 0.02, accent, -0.4, 0.3);
+  dorsalSpines(b, 3, -0.12, -0.08, 0.48, -0.03, 0.035, 0.09, accent);
+  tail(b, 3, 0, 0.30, -0.26, 0.062, 0.11, 0.03, color, accent);
+  // A scrap of loincloth and a work belt.
+  b.box(0.30, 0.16, 0.22, 0, 0.16, 0, 0x6a4630);
+  b.box(0.34, 0.05, 0.26, 0, 0.24, 0, 0x4a3020);
   return {
     body: b.build(),
-    limb: new PartBuilder().cylinder(0.06, 0.05, 0.30, 0, -0.15, 0, accent).build(),
-    eyes: eyePair(0.70, 0.20, 0.09, 0.045),
-    limbOffset: new THREE.Vector3(0.13, 0.18, 0),
-    flapping: false,
-    height: 0.95,
-  };
-}
-
-function buildFly(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  b.sphere(0.16, 0, 0.30, 0, color, 1.5, 1, 1);
-  b.sphere(0.13, 0, 0.32, 0.20, accent, 1, 1, 1);
-  b.cone(0.07, 0.20, 0, 0.28, -0.26, accent, -Math.PI / 2, 0, 0);
-  return {
-    body: b.build(),
-    // A thin translucent-looking blade reads as a wing at this size.
-    limb: new PartBuilder().box(0.05, 0.02, 0.34, 0, 0, -0.14, 0xe8f0d8).build(),
-    eyes: eyePair(0.34, 0.28, 0.08, 0.05),
-    limbOffset: new THREE.Vector3(0.10, 0.40, 0),
-    flapping: true,
-    height: 0.6,
-  };
-}
-
-function buildBeetle(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  // Low, wide carapace with a ridge down the middle.
-  b.sphere(0.34, 0, 0.22, 0, color, 1.25, 0.62, 1.5);
-  b.box(0.06, 0.10, 0.62, 0, 0.36, 0, accent);
-  b.sphere(0.16, 0, 0.22, 0.44, accent, 1, 0.9, 1);
-  // Mandibles.
-  b.cone(0.05, 0.22, -0.10, 0.20, 0.60, accent, Math.PI / 2, 0, 0.3);
-  b.cone(0.05, 0.22, 0.10, 0.20, 0.60, accent, Math.PI / 2, 0, -0.3);
-  return {
-    body: b.build(),
-    limb: new PartBuilder().cylinder(0.035, 0.03, 0.26, 0, -0.13, 0, accent, 0, 0, 0.4).build(),
-    eyes: eyePair(0.28, 0.52, 0.09, 0.04),
-    limbOffset: new THREE.Vector3(0.26, 0.14, 0.10),
-    flapping: false,
-    height: 0.7,
-  };
-}
-
-function buildTroll(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  b.sphere(0.36, 0, 0.66, 0, color, 1.15, 1.2, 0.95);
-  // Heavy shoulders, small sunken head.
-  b.sphere(0.20, -0.34, 0.94, 0, color);
-  b.sphere(0.20, 0.34, 0.94, 0, color);
-  b.sphere(0.19, 0, 1.02, 0.08, accent);
-  b.cone(0.07, 0.18, -0.09, 1.16, 0.04, accent);
-  b.cone(0.07, 0.18, 0.09, 1.16, 0.04, accent);
-  // Long dangling arms.
-  b.cylinder(0.09, 0.11, 0.62, -0.40, 0.62, 0.02, color, 0.15);
-  b.cylinder(0.09, 0.11, 0.62, 0.40, 0.62, 0.02, color, 0.15);
-  return {
-    body: b.build(),
-    limb: new PartBuilder().cylinder(0.10, 0.09, 0.38, 0, -0.19, 0, accent).build(),
-    eyes: eyePair(1.05, 0.24, 0.08, 0.05),
-    limbOffset: new THREE.Vector3(0.17, 0.38, 0),
-    flapping: false,
-    height: 1.45,
-  };
-}
-
-function buildDemonSpawn(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  b.sphere(0.26, 0, 0.60, 0, color, 1, 1.25, 0.9);
-  b.sphere(0.20, 0, 0.94, 0.04, color);
-  // Swept-back horns.
-  b.cone(0.06, 0.32, -0.14, 1.08, -0.06, accent, -0.5, 0, 0.5);
-  b.cone(0.06, 0.32, 0.14, 1.08, -0.06, accent, -0.5, 0, -0.5);
-  b.cone(0.09, 0.20, 0, 0.90, 0.22, accent, Math.PI / 2, 0, 0);
-  // Whip tail.
-  b.cone(0.07, 0.52, 0, 0.48, -0.34, accent, -1.1, 0, 0);
-  return {
-    body: b.build(),
-    limb: new PartBuilder().cylinder(0.07, 0.06, 0.42, 0, -0.21, 0, accent).build(),
-    eyes: eyePair(0.98, 0.18, 0.08, 0.045),
-    limbOffset: new THREE.Vector3(0.14, 0.36, 0),
-    flapping: false,
-    height: 1.25,
-  };
-}
-
-function buildWarlock(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  // Robe as a broad cone: the silhouette does all the work.
-  b.cone(0.34, 0.86, 0, 0.43, 0, color);
-  b.sphere(0.17, 0, 0.92, 0.02, color);
-  // Hood peak and shoulder mantle.
-  b.cone(0.19, 0.26, 0, 1.06, -0.03, accent);
-  b.sphere(0.24, 0, 0.82, 0, accent, 1.2, 0.35, 1.2);
-  // Staff with a glowing head.
-  b.cylinder(0.025, 0.025, 1.05, 0.30, 0.52, 0.05, 0x4a3a28);
-  b.sphere(0.075, 0.30, 1.08, 0.05, accent);
-  return {
-    body: b.build(),
-    // Robed feet barely show; a small hem block keeps the gait subtle.
-    limb: new PartBuilder().box(0.10, 0.10, 0.16, 0, -0.05, 0, accent).build(),
-    eyes: eyePair(0.94, 0.16, 0.06, 0.04),
-    limbOffset: new THREE.Vector3(0.09, 0.06, 0),
-    flapping: false,
-    height: 1.25,
-  };
-}
-
-function buildBileDemon(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  // Almost entirely belly.
-  b.sphere(0.52, 0, 0.56, 0, color, 1.1, 1.0, 1.05);
-  b.sphere(0.22, 0, 1.02, 0.10, color);
-  // Upward tusks and tiny arms.
-  b.cone(0.07, 0.24, -0.13, 1.06, 0.20, accent, -2.4, 0, 0);
-  b.cone(0.07, 0.24, 0.13, 1.06, 0.20, accent, -2.4, 0, 0);
-  b.cylinder(0.08, 0.07, 0.34, -0.50, 0.68, 0.04, color, 0.4);
-  b.cylinder(0.08, 0.07, 0.34, 0.50, 0.68, 0.04, color, 0.4);
-  return {
-    body: b.build(),
-    limb: new PartBuilder().cylinder(0.12, 0.11, 0.26, 0, -0.13, 0, accent).build(),
-    eyes: eyePair(1.06, 0.24, 0.09, 0.05),
-    limbOffset: new THREE.Vector3(0.22, 0.26, 0),
-    flapping: false,
-    height: 1.5,
-  };
-}
-
-function buildDragon(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  b.sphere(0.34, 0, 0.62, 0, color, 1.0, 0.9, 1.5);
-  // Neck, head, snout.
-  b.cylinder(0.14, 0.18, 0.44, 0, 0.86, 0.34, color, 0.7);
-  b.sphere(0.17, 0, 1.02, 0.56, color, 1, 0.9, 1.2);
-  b.cone(0.10, 0.26, 0, 0.98, 0.76, accent, Math.PI / 2, 0, 0);
-  // Horns and a long tail.
-  b.cone(0.05, 0.22, -0.10, 1.14, 0.46, accent, -0.6, 0, 0.3);
-  b.cone(0.05, 0.22, 0.10, 1.14, 0.46, accent, -0.6, 0, -0.3);
-  b.cone(0.13, 0.86, 0, 0.56, -0.62, color, -1.35, 0, 0);
-  // Dorsal ridge.
-  b.cone(0.05, 0.16, 0, 0.92, -0.06, accent);
-  b.cone(0.05, 0.14, 0, 0.86, -0.30, accent);
-  return {
-    body: b.build(),
-    limb: new PartBuilder()
-      .box(0.04, 0.5, 0.70, 0, -0.05, -0.24, accent)
-      .cone(0.06, 0.30, 0, 0.22, 0.06, accent, 1.2, 0, 0)
-      .build(),
-    eyes: eyePair(1.06, 0.66, 0.09, 0.045),
-    limbOffset: new THREE.Vector3(0.26, 0.78, -0.06),
-    flapping: true,
-    height: 1.5,
-  };
-}
-
-function buildDwarf(color: number, accent: number): CreatureModel {
-  const b = new PartBuilder();
-  b.sphere(0.26, 0, 0.44, 0, accent, 1.1, 1.0, 0.9);
-  b.sphere(0.18, 0, 0.74, 0.02, color);
-  // Beard and helmet — the whole read at a glance.
-  b.cone(0.16, 0.30, 0, 0.62, 0.14, 0xe8e0d0, Math.PI, 0, 0);
-  b.sphere(0.19, 0, 0.82, 0, 0x8a8f9a, 1, 0.6, 1);
-  b.cylinder(0.03, 0.03, 0.52, 0.28, 0.52, 0.10, 0x5a4a3a, 0.3);
-  b.box(0.16, 0.16, 0.05, 0.30, 0.80, 0.14, 0x9aa0aa, 0.3);
-  return {
-    body: b.build(),
-    limb: new PartBuilder().cylinder(0.07, 0.06, 0.26, 0, -0.13, 0, accent).build(),
-    eyes: eyePair(0.78, 0.16, 0.07, 0.035),
-    limbOffset: new THREE.Vector3(0.12, 0.20, 0),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.062, 0.05, 0.20, 0, -0.10, 0, color, 0, 0, 0, 6);
+      l.sphere(0.05, 0, -0.20, 0, color, 1, 1, 1, 6);
+      l.cylinder(0.045, 0.04, 0.16, 0, -0.29, 0.01, color, 0, 0, 0, 6);
+      l.sphere(0.055, 0, -0.38, 0.03, accent, 1.1, 0.7, 1.4, 6);
+      l.cone(0.02, 0.06, -0.03, -0.39, 0.10, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+      l.cone(0.02, 0.06, 0.03, -0.39, 0.10, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+      return l.build();
+    })(),
+    eyes: eyePair(0.74, 0.22, 0.085, 0.05),
+    limbOffset: new THREE.Vector3(0.15, 0.20, 0),
     flapping: false,
     height: 1.0,
   };
 }
 
-function buildArcher(color: number, accent: number): CreatureModel {
+/* -------------------------------------------------------------- insects -- */
+
+function buildFly(color: number, accent: number): CreatureModel {
   const b = new PartBuilder();
-  b.sphere(0.22, 0, 0.62, 0, color, 0.9, 1.2, 0.8);
-  b.sphere(0.16, 0, 0.94, 0.02, accent);
-  // Hood, quiver and bow.
-  b.cone(0.18, 0.24, 0, 1.06, -0.02, color);
-  b.cylinder(0.06, 0.06, 0.34, -0.18, 0.72, -0.14, 0x6a5a3a, 0.4);
-  b.cylinder(0.015, 0.015, 0.62, 0.26, 0.72, 0.06, 0x7a5a2a, 0, 0, 0.15);
+  // Segmented abdomen tapering back, banded like a real dipteran.
+  b.sphere(0.19, 0, 0.32, -0.06, color, 1.15, 1, 1.2);
+  b.sphere(0.155, 0, 0.31, -0.26, accent, 1.1, 1, 1.1, 7);
+  b.sphere(0.12, 0, 0.30, -0.42, color, 1, 1, 1, 6);
+  b.cone(0.08, 0.16, 0, 0.30, -0.56, accent, -Math.PI / 2, 0, 0, 6);
+  // Thorax with a furry collar.
+  b.sphere(0.15, 0, 0.33, 0.14, accent, 1.1, 1.05, 1, 7);
+  b.torus(0.13, 0.035, 0, 0.33, 0.10, 0xd8e0b0, Math.PI / 2);
+  // Head, proboscis, antennae.
+  b.sphere(0.115, 0, 0.34, 0.30, color, 1, 1, 0.95, 7);
+  b.cone(0.035, 0.16, 0, 0.28, 0.40, 0x6a5a2a, Math.PI / 2, 0, 0, 5);
+  b.cone(0.014, 0.13, -0.05, 0.44, 0.34, 0x4a4020, -0.5, 0, 0.4, 4);
+  b.cone(0.014, 0.13, 0.05, 0.44, 0.34, 0x4a4020, -0.5, 0, -0.4, 4);
+  // Wing roots and bristles along the back.
+  b.sphere(0.05, -0.10, 0.42, 0.10, 0xd8e0b0, 1, 0.6, 1, 5);
+  b.sphere(0.05, 0.10, 0.42, 0.10, 0xd8e0b0, 1, 0.6, 1, 5);
+  for (let i = 0; i < 4; i++) {
+    b.cone(0.012, 0.07, 0, 0.44 - i * 0.01, 0.02 - i * 0.13, 0x4a4020, -0.6, 0, 0, 4);
+  }
   return {
     body: b.build(),
-    limb: new PartBuilder().cylinder(0.055, 0.05, 0.36, 0, -0.18, 0, color).build(),
-    eyes: eyePair(0.96, 0.14, 0.06, 0.035),
-    limbOffset: new THREE.Vector3(0.11, 0.34, 0),
+    // A veined wing: leading-edge spar plus a thin membrane panel.
+    limb: (() => {
+      const l = new PartBuilder();
+      l.box(0.028, 0.014, 0.42, 0, 0, -0.20, 0xb8c88a);
+      l.box(0.10, 0.006, 0.36, 0.03, -0.004, -0.19, 0xe8f0d8);
+      l.box(0.05, 0.006, 0.22, 0.06, -0.006, -0.30, 0xdce8c8);
+      return l.build();
+    })(),
+    eyes: eyePair(0.36, 0.36, 0.085, 0.062),
+    limbOffset: new THREE.Vector3(0.09, 0.42, 0.08),
+    flapping: true,
+    height: 0.62,
+  };
+}
+
+function buildBeetle(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const shell = 0x5a4632;
+  // Low domed carapace with a split down the middle and segment ridges.
+  b.sphere(0.36, 0, 0.24, -0.04, shell, 1.25, 0.66, 1.45);
+  b.box(0.045, 0.13, 0.74, 0, 0.36, -0.04, accent);
+  for (let i = 0; i < 3; i++) {
+    b.box(0.62 - i * 0.09, 0.035, 0.05, 0, 0.33 - i * 0.02, -0.22 - i * 0.14, accent);
+  }
+  // Pale underbelly plates.
+  b.sphere(0.30, 0, 0.13, -0.04, 0x8a7048, 1.15, 0.35, 1.3, 7);
+  // Head with a horn, mandibles and antennae.
+  b.sphere(0.17, 0, 0.22, 0.42, color, 1.05, 0.85, 0.95, 7);
+  b.cone(0.06, 0.26, 0, 0.32, 0.46, accent, -0.9, 0, 0, 6);
+  b.cone(0.055, 0.28, -0.11, 0.18, 0.60, accent, Math.PI / 2, 0, 0.34, 5);
+  b.cone(0.055, 0.28, 0.11, 0.18, 0.60, accent, Math.PI / 2, 0, -0.34, 5);
+  b.cone(0.03, 0.12, -0.15, 0.16, 0.68, 0xc8a860, Math.PI / 2, 0, 0.9, 4);
+  b.cone(0.03, 0.12, 0.15, 0.16, 0.68, 0xc8a860, Math.PI / 2, 0, -0.9, 4);
+  b.cone(0.016, 0.20, -0.09, 0.32, 0.52, 0x3a2c1c, -0.7, 0, 0.5, 4);
+  b.cone(0.016, 0.20, 0.09, 0.32, 0.52, 0x3a2c1c, -0.7, 0, -0.5, 4);
+  // Rear spiracles.
+  b.sphere(0.05, -0.22, 0.20, -0.42, accent, 1, 1, 1, 5);
+  b.sphere(0.05, 0.22, 0.20, -0.42, accent, 1, 1, 1, 5);
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.035, 0.028, 0.20, 0, -0.10, 0, accent, 0, 0, 0.42, 5);
+      l.cylinder(0.026, 0.018, 0.20, 0.07, -0.27, 0, accent, 0, 0, -0.5, 5);
+      l.cone(0.022, 0.07, 0.11, -0.38, 0.02, 0x2a1e12, Math.PI / 2, 0, 0, 4);
+      return l.build();
+    })(),
+    eyes: eyePair(0.28, 0.52, 0.10, 0.045),
+    limbOffset: new THREE.Vector3(0.28, 0.16, 0.10),
     flapping: false,
-    height: 1.25,
+    height: 0.74,
+  };
+}
+
+/* --------------------------------------------------------------- brutes -- */
+
+function buildTroll(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const belly = 0x8fae6a;
+  // Barrel chest, heavy gut, shoulders wider than the head is tall.
+  b.sphere(0.38, 0, 0.72, -0.02, color, 1.2, 1.15, 0.95);
+  b.sphere(0.32, 0, 0.50, 0.10, belly, 1.15, 0.95, 0.9, 7);
+  b.sphere(0.24, -0.38, 0.94, -0.02, color, 1, 0.95, 1);
+  b.sphere(0.24, 0.38, 0.94, -0.02, color, 1, 0.95, 1);
+  b.sphere(0.14, -0.44, 1.06, -0.04, accent, 1, 0.7, 1, 6);
+  b.sphere(0.14, 0.44, 1.06, -0.04, accent, 1, 0.7, 1, 6);
+  // Small head sunk between the shoulders.
+  b.sphere(0.20, 0, 1.02, 0.10, color, 1.05, 0.95, 1);
+  b.box(0.30, 0.07, 0.14, 0, 1.09, 0.19, accent);
+  b.sphere(0.11, 0, 0.94, 0.24, belly, 1.15, 0.8, 1, 6);
+  tusks(b, 0.035, 0.15, 0.075, 0.90, 0.24, 0xe8e0c0);
+  b.cone(0.05, 0.13, -0.19, 1.04, 0.02, accent, 0, 0, 1.2, 5);
+  b.cone(0.05, 0.13, 0.19, 1.04, 0.02, accent, 0, 0, -1.2, 5);
+  // Long apelike arms hanging past the knees, ending in fists.
+  for (const s of [-1, 1]) {
+    b.cylinder(0.115, 0.10, 0.40, s * 0.44, 0.76, 0.02, color, 0.12, 0, 0, 6);
+    b.sphere(0.10, s * 0.46, 0.55, 0.04, color, 1, 1, 1, 6);
+    b.cylinder(0.10, 0.095, 0.34, s * 0.47, 0.38, 0.06, color, 0.2, 0, 0, 6);
+    b.sphere(0.135, s * 0.48, 0.20, 0.09, accent, 1.1, 0.95, 1.05, 7);
+    b.cone(0.026, 0.09, s * 0.52, 0.14, 0.17, 0xd8d0b0, Math.PI / 2, 0, 0, 4);
+  }
+  // Hunched back, spine bumps, belt.
+  b.sphere(0.22, 0, 0.96, -0.24, color, 1.3, 0.8, 0.9, 7);
+  dorsalSpines(b, 4, -0.20, -0.06, 0.92, -0.10, 0.05, 0.12, accent);
+  b.box(0.62, 0.09, 0.50, 0, 0.40, 0, 0x4a3520);
+  b.box(0.16, 0.13, 0.06, 0, 0.40, 0.28, 0xb8a050);
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.135, 0.115, 0.26, 0, -0.13, 0, color, 0, 0, 0, 6);
+      l.sphere(0.11, 0, -0.26, 0, color, 1, 1, 1, 6);
+      l.cylinder(0.11, 0.10, 0.22, 0, -0.38, 0.01, color, 0, 0, 0, 6);
+      l.sphere(0.12, 0, -0.50, 0.06, accent, 1.25, 0.7, 1.55, 6);
+      for (let i = -1; i <= 1; i++) {
+        l.cone(0.026, 0.08, i * 0.06, -0.51, 0.17, 0xd8d0b0, -Math.PI / 2, 0, 0, 4);
+      }
+      return l.build();
+    })(),
+    eyes: eyePair(1.05, 0.24, 0.075, 0.05),
+    limbOffset: new THREE.Vector3(0.19, 0.42, 0),
+    flapping: false,
+    height: 1.5,
+  };
+}
+
+function buildDemonSpawn(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const scale = 0xd8935a;
+  // Lean reptilian biped leaning forward, counterweighted by the tail.
+  b.sphere(0.27, 0, 0.62, 0.02, color, 1.05, 1.2, 0.95);
+  b.sphere(0.21, 0, 0.52, 0.16, scale, 1.0, 1.05, 0.7, 7);
+  b.box(0.30, 0.20, 0.06, 0, 0.62, 0.20, scale);
+  b.sphere(0.17, -0.25, 0.80, 0, color, 1, 0.9, 1, 7);
+  b.sphere(0.17, 0.25, 0.80, 0, color, 1, 0.9, 1, 7);
+  // Neck and a proper wedge-shaped head with a jaw.
+  b.cylinder(0.11, 0.14, 0.18, 0, 0.90, 0.06, color, 0.35, 0, 0, 6);
+  b.sphere(0.17, 0, 1.00, 0.10, color, 1, 0.95, 1.15);
+  b.cone(0.13, 0.30, 0, 0.98, 0.30, color, Math.PI / 2, 0, 0, 6);
+  b.box(0.16, 0.06, 0.24, 0, 0.90, 0.28, scale);
+  b.sphere(0.035, -0.05, 1.00, 0.42, 0x2a1008, 1, 1, 1, 4);
+  b.sphere(0.035, 0.05, 1.00, 0.42, 0x2a1008, 1, 1, 1, 4);
+  for (let i = 0; i < 3; i++) {
+    b.cone(0.022, 0.07, -0.07, 0.94, 0.26 + i * 0.07, 0xf0e8d0, Math.PI, 0, 0, 4);
+    b.cone(0.022, 0.07, 0.07, 0.94, 0.26 + i * 0.07, 0xf0e8d0, Math.PI, 0, 0, 4);
+  }
+  horns(b, 0.055, 0.34, 0.13, 1.10, -0.02, accent, -0.75, 0.42);
+  b.cone(0.03, 0.14, -0.16, 0.98, 0.06, accent, -0.4, 0, 0.9, 4);
+  b.cone(0.03, 0.14, 0.16, 0.98, 0.06, accent, -0.4, 0, -0.9, 4);
+  // Vestigial wings, back spines and a long whip tail.
+  b.cone(0.07, 0.26, -0.24, 0.78, -0.14, accent, -1.1, 0, 0.8, 5);
+  b.cone(0.07, 0.26, 0.24, 0.78, -0.14, accent, -1.1, 0, -0.8, 5);
+  dorsalSpines(b, 5, -0.10, -0.09, 0.76, -0.045, 0.05, 0.15, accent);
+  tail(b, 5, 0, 0.52, -0.30, 0.09, 0.15, 0.05, color, accent);
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.sphere(0.11, 0, -0.06, 0, color, 1, 1.2, 1, 6);
+      l.cylinder(0.075, 0.06, 0.22, 0, -0.24, -0.02, color, -0.2, 0, 0, 6);
+      l.sphere(0.06, 0, -0.36, 0.02, color, 1, 1, 1, 5);
+      l.cylinder(0.055, 0.05, 0.18, 0, -0.46, 0.04, color, 0.3, 0, 0, 6);
+      l.sphere(0.065, 0, -0.56, 0.10, accent, 1.1, 0.6, 1.5, 6);
+      for (let i = -1; i <= 1; i++) {
+        l.cone(0.02, 0.08, i * 0.045, -0.57, 0.20, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+      }
+      return l.build();
+    })(),
+    eyes: eyePair(1.03, 0.24, 0.075, 0.05),
+    limbOffset: new THREE.Vector3(0.15, 0.44, 0),
+    flapping: false,
+    height: 1.35,
+  };
+}
+
+function buildBileDemon(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const gut = 0xb8c85a;
+  // Almost all belly, with folds and warts.
+  b.sphere(0.56, 0, 0.58, 0, color, 1.12, 1.0, 1.08);
+  b.sphere(0.46, 0, 0.44, 0.22, gut, 1.1, 0.85, 0.8);
+  b.torus(0.44, 0.09, 0, 0.34, 0.06, gut, Math.PI / 2 - 0.2);
+  b.torus(0.36, 0.07, 0, 0.20, 0.08, gut, Math.PI / 2 - 0.15);
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    b.sphere(0.05 + (i % 3) * 0.012,
+      Math.cos(a) * 0.5, 0.72 + Math.sin(a * 1.7) * 0.16, Math.sin(a) * 0.42,
+      accent, 1, 0.8, 1, 5);
+  }
+  // Small head crammed onto the top of the mass.
+  b.sphere(0.24, 0, 1.02, 0.12, color, 1.05, 0.9, 1);
+  b.box(0.34, 0.08, 0.14, 0, 1.10, 0.24, accent);
+  b.sphere(0.14, 0, 0.94, 0.28, gut, 1.2, 0.75, 1, 6);
+  tusks(b, 0.055, 0.26, 0.13, 1.00, 0.24, 0xe8e0c0);
+  b.cone(0.03, 0.10, -0.11, 1.16, 0.10, accent, -0.5, 0, 0.4, 4);
+  b.cone(0.03, 0.10, 0.11, 1.16, 0.10, accent, -0.5, 0, -0.4, 4);
+  // Shoulder spikes and stubby arms.
+  for (const s of [-1, 1]) {
+    b.cone(0.09, 0.30, s * 0.44, 0.94, -0.10, accent, -0.9, 0, s * -0.5, 5);
+    b.cone(0.06, 0.20, s * 0.30, 1.00, -0.22, accent, -1.0, 0, s * -0.3, 5);
+    b.cylinder(0.10, 0.085, 0.30, s * 0.56, 0.66, 0.06, color, 0.45, 0, 0, 6);
+    b.sphere(0.11, s * 0.60, 0.48, 0.18, gut, 1, 0.95, 1.05, 6);
+    b.cone(0.025, 0.09, s * 0.62, 0.42, 0.26, 0xd8d0b0, -Math.PI / 2, 0, 0, 4);
+  }
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.155, 0.14, 0.20, 0, -0.10, 0, color, 0, 0, 0, 6);
+      l.sphere(0.14, 0, -0.22, 0.02, gut, 1.15, 0.75, 1.35, 6);
+      for (let i = -1; i <= 1; i++) {
+        l.cone(0.03, 0.09, i * 0.07, -0.23, 0.18, 0xd8d0b0, -Math.PI / 2, 0, 0, 4);
+      }
+      return l.build();
+    })(),
+    eyes: eyePair(1.06, 0.28, 0.085, 0.048),
+    limbOffset: new THREE.Vector3(0.25, 0.28, 0),
+    flapping: false,
+    height: 1.55,
+  };
+}
+
+/* ------------------------------------------------------- casters, wyrms -- */
+
+function buildWarlock(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const trim = 0x2a2450;
+  // Robe: a cone plus a flared hem, so it reads as cloth and not a traffic cone.
+  b.cone(0.33, 0.84, 0, 0.42, 0, color, 0, 0, 0, 9);
+  b.cone(0.40, 0.22, 0, 0.11, 0, trim, 0, 0, 0, 9);
+  b.torus(0.36, 0.05, 0, 0.06, 0, trim);
+  // Vertical fold lines down the robe.
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.3;
+    b.box(0.035, 0.62, 0.035, Math.cos(a) * 0.27, 0.40, Math.sin(a) * 0.27, trim);
+  }
+  // Shoulders, mantle and a deep hood with the face in shadow.
+  b.sphere(0.26, 0, 0.84, 0, accent, 1.15, 0.42, 1.15, 8);
+  b.torus(0.22, 0.045, 0, 0.90, 0, trim);
+  b.sphere(0.175, 0, 0.94, 0.02, color, 1, 1.05, 1, 8);
+  b.cone(0.21, 0.30, 0, 1.06, -0.04, accent, 0.18, 0, 0, 8);
+  b.sphere(0.135, 0, 0.93, 0.10, 0x0e0a1a, 1, 1, 0.8, 6);
+  b.cone(0.09, 0.22, 0, 0.86, 0.10, 0xd8d0e8, Math.PI, 0, 0, 6);
+  // Sleeved arms with pale hands, one gripping the staff.
+  for (const s of [-1, 1]) {
+    b.cylinder(0.085, 0.10, 0.34, s * 0.24, 0.68, 0.04, color, 0.25, 0, s * -0.2, 6);
+    b.sphere(0.075, s * 0.29, 0.50, 0.12, 0xd8c8b0, 1, 1, 1, 6);
+  }
+  // Staff: shaft, binding, and a crystal head.
+  b.cylinder(0.028, 0.032, 1.20, 0.32, 0.60, 0.10, 0x4a3826, 0, 0, 0.05, 6);
+  b.torus(0.045, 0.014, 0.32, 0.86, 0.10, 0xb89040);
+  b.cone(0.085, 0.16, 0.32, 1.22, 0.10, accent, 0, 0, 0, 5);
+  b.cone(0.085, 0.14, 0.32, 1.08, 0.10, accent, Math.PI, 0, 0, 5);
+  // Belt, pouch and a chained book at the hip.
+  b.torus(0.30, 0.035, 0, 0.52, 0, trim);
+  b.box(0.12, 0.14, 0.08, -0.26, 0.46, 0.14, 0x6a4a2a);
+  b.box(0.16, 0.20, 0.06, 0.26, 0.44, -0.10, 0x7a2a2a);
+  b.box(0.14, 0.18, 0.02, 0.26, 0.44, -0.13, 0xd8c8a0);
+  return {
+    body: b.build(),
+    // Only the hem moves; a robed caster shouldn't have visible legs.
+    limb: new PartBuilder()
+      .box(0.13, 0.09, 0.19, 0, -0.04, 0.03, trim)
+      .box(0.09, 0.05, 0.06, 0, -0.07, 0.13, 0x2a1e14)
+      .build(),
+    eyes: eyePair(0.95, 0.20, 0.055, 0.042),
+    limbOffset: new THREE.Vector3(0.10, 0.07, 0),
+    flapping: false,
+    height: 1.35,
+  };
+}
+
+function buildDragon(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const belly = 0xe8b070;
+  // Deep chest, long body, haunches.
+  b.sphere(0.38, 0, 0.66, -0.02, color, 1.0, 0.95, 1.4);
+  b.sphere(0.30, 0, 0.50, 0.10, belly, 0.95, 0.75, 1.2, 7);
+  b.sphere(0.28, -0.26, 0.56, -0.26, color, 1, 1, 1.1, 7);
+  b.sphere(0.28, 0.26, 0.56, -0.26, color, 1, 1, 1.1, 7);
+  // Neck in three tapering segments.
+  for (let i = 0; i < 3; i++) {
+    b.sphere(0.17 - i * 0.018, 0, 0.82 + i * 0.13, 0.24 + i * 0.13, color, 1, 1, 1.1, 7);
+  }
+  // Skull, snout, jaw, teeth, nostrils.
+  b.sphere(0.19, 0, 1.16, 0.58, color, 1.05, 0.95, 1.15);
+  b.cone(0.14, 0.36, 0, 1.12, 0.84, color, Math.PI / 2, 0, 0, 6);
+  b.box(0.18, 0.07, 0.30, 0, 1.02, 0.76, belly);
+  b.sphere(0.035, -0.055, 1.14, 1.00, 0x2a1008, 1, 1, 1, 4);
+  b.sphere(0.035, 0.055, 1.14, 1.00, 0x2a1008, 1, 1, 1, 4);
+  for (let i = 0; i < 4; i++) {
+    const z = 0.70 + i * 0.08;
+    b.cone(0.024, 0.08, -0.075, 1.05, z, 0xf0e8d0, Math.PI, 0, 0, 4);
+    b.cone(0.024, 0.08, 0.075, 1.05, z, 0xf0e8d0, Math.PI, 0, 0, 4);
+  }
+  horns(b, 0.06, 0.40, 0.13, 1.28, 0.46, accent, -0.85, 0.35);
+  b.cone(0.035, 0.16, -0.17, 1.14, 0.52, accent, -0.3, 0, 1.0, 4);
+  b.cone(0.035, 0.16, 0.17, 1.14, 0.52, accent, -0.3, 0, -1.0, 4);
+  b.cone(0.03, 0.14, 0, 1.05, 0.94, accent, -0.9, 0, 0, 4);
+  // Dorsal ridge running from the neck out along the tail, then the tail.
+  dorsalSpines(b, 7, 0.30, -0.16, 0.94, -0.045, 0.06, 0.20, accent);
+  tail(b, 6, 0, 0.58, -0.44, 0.15, 0.20, 0.045, color, accent);
+  b.cone(0.14, 0.30, 0, 0.32, -1.60, accent, -1.4, 0, 0, 5);
+  return {
+    body: b.build(),
+    // A membraned wing: arm bones, three finger struts, panels between.
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.05, 0.04, 0.34, 0, 0.02, -0.16, color, Math.PI / 2, 0, 0, 6);
+      l.sphere(0.055, 0, 0.03, -0.33, color, 1, 1, 1, 5);
+      l.cylinder(0.035, 0.025, 0.44, 0, 0.06, -0.55, accent, Math.PI / 2 - 0.2, 0, 0, 6);
+      l.box(0.02, 0.30, 0.56, 0, -0.10, -0.42, accent);
+      l.box(0.018, 0.24, 0.44, 0, -0.16, -0.72, accent);
+      l.box(0.34, 0.014, 0.50, 0.15, -0.10, -0.46, 0x8a2a1e);
+      l.cone(0.02, 0.09, 0, 0.10, -0.80, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+      return l.build();
+    })(),
+    eyes: eyePair(1.20, 0.68, 0.085, 0.05),
+    limbOffset: new THREE.Vector3(0.30, 0.86, -0.06),
+    flapping: true,
+    height: 1.6,
+  };
+}
+
+/* ---------------------------------------------------------------- heroes -- */
+
+function buildDwarf(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const mail = 0x8a8f9a;
+  // Short and wide: the silhouette is a box with a beard.
+  b.sphere(0.28, 0, 0.44, 0, accent, 1.25, 1.0, 0.95);
+  b.sphere(0.24, 0, 0.38, 0.10, mail, 1.15, 0.8, 0.7, 7);
+  b.sphere(0.16, -0.28, 0.58, 0, mail, 1, 0.85, 1, 6);
+  b.sphere(0.16, 0.28, 0.58, 0, mail, 1, 0.85, 1, 6);
+  // Head is mostly beard and helmet.
+  b.sphere(0.175, 0, 0.72, 0.02, color, 1, 0.95, 1, 7);
+  b.cone(0.20, 0.38, 0, 0.56, 0.12, 0xe8e0d0, Math.PI, 0, 0, 7);
+  b.sphere(0.11, -0.13, 0.66, 0.10, 0xe8e0d0, 1, 1.2, 1, 6);
+  b.sphere(0.11, 0.13, 0.66, 0.10, 0xe8e0d0, 1, 1.2, 1, 6);
+  b.cone(0.10, 0.22, 0, 0.60, -0.14, 0xd8d0c0, -0.4, 0, 0, 6);
+  b.sphere(0.19, 0, 0.82, 0, mail, 1, 0.62, 1, 8);
+  b.box(0.05, 0.16, 0.05, 0, 0.76, 0.17, 0x6a7078);
+  b.torus(0.185, 0.028, 0, 0.78, 0, 0xb89040);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    b.sphere(0.022, Math.cos(a) * 0.17, 0.86, Math.sin(a) * 0.17, 0xb89040, 1, 1, 1, 4);
+  }
+  // Arms and a pickaxe over the shoulder.
+  for (const s of [-1, 1]) {
+    b.cylinder(0.075, 0.065, 0.24, s * 0.31, 0.44, 0.03, accent, 0.2, 0, 0, 6);
+    b.sphere(0.075, s * 0.33, 0.30, 0.10, color, 1, 1, 1, 6);
+  }
+  b.cylinder(0.03, 0.032, 0.66, 0.30, 0.52, 0.14, 0x5a4028, 0.35, 0, 0.18, 6);
+  b.box(0.34, 0.07, 0.09, 0.36, 0.82, 0.24, mail, 0, 0.3, 0.2);
+  b.cone(0.05, 0.16, 0.50, 0.84, 0.28, mail, Math.PI / 2, 0.3, 0, 5);
+  b.box(0.44, 0.07, 0.30, 0, 0.34, 0, 0x5a4028);
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.085, 0.075, 0.18, 0, -0.09, 0, accent, 0, 0, 0, 6);
+      l.cylinder(0.07, 0.065, 0.14, 0, -0.24, 0, mail, 0, 0, 0, 6);
+      l.sphere(0.08, 0, -0.32, 0.05, 0x4a3520, 1.1, 0.7, 1.4, 6);
+      return l.build();
+    })(),
+    eyes: eyePair(0.76, 0.16, 0.065, 0.035),
+    limbOffset: new THREE.Vector3(0.13, 0.22, 0),
+    flapping: false,
+    height: 1.05,
+  };
+}
+
+function buildArcher(color: number, accent: number): CreatureModel {
+  const b = new PartBuilder();
+  const leather = 0x6a5236;
+  b.sphere(0.23, 0, 0.64, 0, color, 0.95, 1.25, 0.8);
+  b.box(0.34, 0.44, 0.20, 0, 0.62, 0.02, leather);
+  b.sphere(0.14, -0.24, 0.86, 0, color, 1, 0.85, 1, 6);
+  b.sphere(0.14, 0.24, 0.86, 0, color, 1, 0.85, 1, 6);
+  // Hood and cloak.
+  b.sphere(0.16, 0, 0.96, 0.02, accent, 1, 1, 1, 7);
+  b.cone(0.20, 0.30, 0, 1.06, -0.04, color, 0.2, 0, 0, 7);
+  b.sphere(0.12, 0, 0.95, 0.09, 0x120e08, 1, 1, 0.8, 6);
+  b.cone(0.30, 0.62, 0, 0.62, -0.14, color, 0, 0, 0, 8);
+  // Quiver of arrows across the back.
+  b.cylinder(0.065, 0.075, 0.34, -0.20, 0.72, -0.18, leather, 0.35, 0, 0.3, 6);
+  for (let i = 0; i < 3; i++) {
+    b.cylinder(0.008, 0.008, 0.22, -0.20 + i * 0.03, 0.98, -0.20, 0x8a7048, 0.35, 0, 0.3, 4);
+    b.cone(0.022, 0.06, -0.20 + i * 0.03, 1.06, -0.22, 0xd8d0c0, 0.35, 0, 0.3, 4);
+  }
+  // Bow: three angled staves plus a string, which reads as a curve.
+  b.cylinder(0.018, 0.018, 0.34, 0.30, 0.86, 0.06, 0x7a5a2a, 0, 0, 0.30, 5);
+  b.cylinder(0.020, 0.020, 0.30, 0.34, 0.62, 0.06, 0x7a5a2a, 0, 0, 0.02, 5);
+  b.cylinder(0.018, 0.018, 0.34, 0.30, 0.38, 0.06, 0x7a5a2a, 0, 0, -0.30, 5);
+  b.box(0.008, 0.86, 0.008, 0.22, 0.62, 0.06, 0xe0dcc8);
+  b.sphere(0.07, 0.28, 0.60, 0.10, 0xd8c8a8, 1, 1, 1, 6);
+  b.torus(0.24, 0.03, 0, 0.46, 0, 0x3a2a18);
+  return {
+    body: b.build(),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.06, 0.05, 0.24, 0, -0.12, 0, leather, 0, 0, 0, 6);
+      l.cylinder(0.05, 0.045, 0.20, 0, -0.34, 0.01, color, 0, 0, 0, 6);
+      l.sphere(0.06, 0, -0.46, 0.05, 0x3a2a18, 1.1, 0.7, 1.4, 6);
+      return l.build();
+    })(),
+    eyes: eyePair(0.96, 0.14, 0.055, 0.035),
+    limbOffset: new THREE.Vector3(0.11, 0.36, 0),
+    flapping: false,
+    height: 1.35,
   };
 }
 
 function buildKnight(color: number, accent: number): CreatureModel {
   const b = new PartBuilder();
-  b.sphere(0.28, 0, 0.66, 0, color, 1.05, 1.25, 0.85);
-  b.sphere(0.20, -0.30, 0.92, 0, color);
-  b.sphere(0.20, 0.30, 0.92, 0, color);
-  // Great helm with a visor slit and a plume.
-  b.cylinder(0.17, 0.17, 0.26, 0, 1.08, 0.02, color);
-  b.box(0.24, 0.05, 0.04, 0, 1.08, 0.16, 0x101010);
-  b.cone(0.07, 0.24, 0, 1.30, -0.02, accent);
-  // Sword and shield.
-  b.box(0.06, 0.72, 0.03, 0.40, 0.86, 0.08, 0xd8dce4, 0, 0, -0.25);
-  b.box(0.34, 0.44, 0.05, -0.38, 0.72, 0.10, accent, 0, 0.3, 0);
+  const steel = 0xd0d6e0;
+  const dark = 0x5a6070;
+  // Plate cuirass with a raised centre ridge.
+  b.sphere(0.29, 0, 0.68, 0, color, 1.1, 1.25, 0.85);
+  b.box(0.10, 0.46, 0.10, 0, 0.68, 0.16, steel);
+  b.torus(0.26, 0.045, 0, 0.48, 0, dark);
+  b.sphere(0.22, -0.32, 0.94, 0, steel, 1, 0.85, 1.05, 7);
+  b.sphere(0.22, 0.32, 0.94, 0, steel, 1, 0.85, 1.05, 7);
+  b.cone(0.10, 0.16, -0.38, 1.04, 0, accent, -0.3, 0, 0.5, 5);
+  b.cone(0.10, 0.16, 0.38, 1.04, 0, accent, -0.3, 0, -0.5, 5);
+  // Great helm with a visor slit and a crest.
+  b.cylinder(0.175, 0.185, 0.28, 0, 1.08, 0.02, steel, 0, 0, 0, 8);
+  b.sphere(0.175, 0, 1.22, 0.02, steel, 1, 0.65, 1, 8);
+  b.box(0.26, 0.045, 0.05, 0, 1.10, 0.17, 0x0a0a10);
+  for (let i = 0; i < 4; i++) {
+    b.box(0.03, 0.03, 0.04, -0.06 + i * 0.04, 1.00, 0.18, 0x0a0a10);
+  }
+  b.box(0.05, 0.20, 0.30, 0, 1.34, -0.02, accent);
+  b.cone(0.06, 0.20, 0, 1.46, -0.02, accent, 0, 0, 0, 5);
+  // Arms.
+  for (const s of [-1, 1]) {
+    b.cylinder(0.085, 0.075, 0.26, s * 0.36, 0.76, 0.02, steel, 0.15, 0, 0, 6);
+    b.sphere(0.08, s * 0.38, 0.60, 0.06, dark, 1, 1, 1, 6);
+    b.cylinder(0.075, 0.07, 0.22, s * 0.40, 0.46, 0.06, steel, 0.2, 0, 0, 6);
+  }
+  // Sword: grip, crossguard, blade, pommel.
+  b.cylinder(0.026, 0.026, 0.16, 0.44, 0.34, 0.10, 0x3a2a18, 0, 0, -0.22, 5);
+  b.sphere(0.035, 0.46, 0.25, 0.10, 0xb89040, 1, 1, 1, 5);
+  b.box(0.20, 0.045, 0.05, 0.42, 0.44, 0.10, 0xb89040, 0, 0, -0.22);
+  b.box(0.075, 0.76, 0.022, 0.50, 0.82, 0.10, steel, 0, 0, -0.22);
+  b.cone(0.04, 0.12, 0.59, 1.22, 0.10, steel, 0, 0, -0.22, 4);
+  // Kite shield.
+  b.box(0.36, 0.46, 0.05, -0.44, 0.72, 0.10, accent, 0, 0.28, 0);
+  b.cone(0.18, 0.22, -0.44, 0.44, 0.10, accent, Math.PI, 0.28, 0, 6);
+  b.sphere(0.07, -0.46, 0.74, 0.14, steel, 1, 1, 0.6, 6);
+  b.box(0.36, 0.05, 0.055, -0.44, 0.92, 0.10, steel, 0, 0.28, 0);
+  // Tassets.
+  b.box(0.34, 0.16, 0.24, 0, 0.42, 0, dark);
   return {
     body: b.build(),
-    limb: new PartBuilder().cylinder(0.09, 0.08, 0.34, 0, -0.17, 0, color).build(),
-    eyes: eyePair(1.08, 0.16, 0.05, 0.03),
-    limbOffset: new THREE.Vector3(0.14, 0.36, 0),
+    limb: (() => {
+      const l = new PartBuilder();
+      l.cylinder(0.095, 0.08, 0.22, 0, -0.11, 0, steel, 0, 0, 0, 6);
+      l.sphere(0.075, 0, -0.24, 0, dark, 1, 1, 1, 5);
+      l.cylinder(0.075, 0.07, 0.20, 0, -0.36, 0.01, steel, 0, 0, 0, 6);
+      l.sphere(0.085, 0, -0.48, 0.06, dark, 1.1, 0.7, 1.5, 6);
+      return l.build();
+    })(),
+    eyes: eyePair(1.10, 0.16, 0.05, 0.028),
+    limbOffset: new THREE.Vector3(0.15, 0.38, 0),
     flapping: false,
-    height: 1.55,
+    height: 1.65,
   };
 }
 

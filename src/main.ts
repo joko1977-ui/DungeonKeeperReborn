@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import './ui/style.css';
 
 import { Owner, RoomType, TICK_MS } from './core/constants';
-import { CreatureType } from './core/creatures';
+import { Creature, CreatureType, createCreature } from './core/creatures';
 import { Game } from './core/game';
 import { generateLevel } from './core/levelgen';
 import { CameraController } from './input/cameraController';
@@ -265,10 +265,18 @@ declare global {
       audio: AudioEngine;
       narrator: Narrator;
       director: AudioDirector;
+      spawn?: (type: CreatureType, x: number, y: number) => Creature;
     };
   }
 }
 window.dk = { game, camera, rig, audio, narrator, director };
+// Spawn helper, used by the creature-model screenshot harness and handy for
+// poking at behaviour from the console.
+window.dk.spawn = (type: CreatureType, x: number, y: number) => {
+  const c = createCreature(type, Owner.Player, x, y);
+  game.creatures.push(c);
+  return c;
+};
 
 // Keep hot-module reloads from stacking up renderers during development.
 if (import.meta.hot) {
