@@ -188,6 +188,7 @@ src/
     terrain.ts         the whole dungeon in two instanced draw calls
     creatureModels.ts  creature meshes built from primitives
     creatureRenderer.ts instanced drawing and procedural animation
+    roomProps.ts       room furniture — heaps, nests, dummies, the Heart
     effects.ts         torches, dynamic lights, particles
     scene.ts           renderer, lighting rig, post-processing
   audio/       the soundscape, all synthesised
@@ -216,8 +217,14 @@ A few decisions worth knowing about:
 - **Torches are cheap.** Every wall bordering claimed floor gets a glowing
   point, but only the nine nearest the camera are promoted to real dynamic
   lights.
-- **Nothing is an asset.** Textures, creature meshes, icons, cursors and every
-  sound are generated at runtime. The whole game is code.
+- **Nothing is an asset.** Textures, creature meshes, room furniture, icons,
+  cursors and every sound are generated at runtime. The whole game is code.
+- **Rooms are furnished, not just retextured.** Each room tile carries a piece
+  of instanced furniture — gold heaps that visibly grow as the vault fills,
+  straw nests, egg clutches, training dummies, bookshelves — with per-tile
+  rotation and scale from a hash of the tile index so a big room isn't a grid
+  of clones. The Dungeon Heart and the portal are single centrepieces that
+  light their own chambers.
 
 Quality settings are chosen from the device: phones and low-core machines drop
 bloom, shadows and pixel ratio automatically.

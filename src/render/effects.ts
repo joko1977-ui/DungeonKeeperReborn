@@ -16,8 +16,15 @@ import { makeGlowTexture, makePuffTexture } from './textures';
  * and the eye is looking at the bright thing anyway.
  */
 
-/** How many torches get a real, shadow-free dynamic light. */
-const LIVE_LIGHTS = 9;
+/**
+ * How many torches get a real, shadow-free dynamic light.
+ *
+ * Shared budget: the dungeon heart and portal each claim their own point
+ * lights on top of these, and a forward renderer pays for every one of them in
+ * every lit fragment. Seven leaves room for those without the total climbing
+ * to somewhere a tablet would feel.
+ */
+const LIVE_LIGHTS = 7;
 
 /** Scratch colour for tinting flames toward a keeper's banner. */
 const TORCH_TINT = new THREE.Color();

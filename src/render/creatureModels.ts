@@ -24,8 +24,13 @@ export interface CreatureModel {
   height: number;
 }
 
-/** Accumulates coloured primitives, then merges them into one geometry. */
-class PartBuilder {
+/**
+ * Accumulates coloured primitives, then merges them into one geometry.
+ *
+ * Exported because room furniture is built exactly the same way — chunky
+ * shapes, flat vertex colours, merged into a single instanced draw.
+ */
+export class PartBuilder {
   private readonly parts: THREE.BufferGeometry[] = [];
 
   private push(geo: THREE.BufferGeometry, color: number): void {
@@ -77,6 +82,17 @@ class PartBuilder {
   cylinder(rt: number, rb: number, h: number, x: number, y: number, z: number, color: number,
     rx = 0, ry = 0, rz = 0): this {
     const g = new THREE.CylinderGeometry(rt, rb, h, 8);
+    if (rx) g.rotateX(rx);
+    if (ry) g.rotateY(ry);
+    if (rz) g.rotateZ(rz);
+    g.translate(x, y, z);
+    this.push(g, color);
+    return this;
+  }
+
+  torus(radius: number, tube: number, x: number, y: number, z: number, color: number,
+    rx = -Math.PI / 2, ry = 0, rz = 0, arc = Math.PI * 2): this {
+    const g = new THREE.TorusGeometry(radius, tube, 6, 14, arc);
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);

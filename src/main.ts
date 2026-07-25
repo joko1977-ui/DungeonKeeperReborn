@@ -10,6 +10,7 @@ import { HandOfEvil, Tool } from './input/hand';
 import { CreatureRenderer } from './render/creatureRenderer';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
+import { RoomPropRenderer } from './render/roomProps';
 import { TerrainRenderer } from './render/terrain';
 import { AudioEngine } from './audio/audio';
 import { AudioDirector } from './audio/director';
@@ -38,11 +39,13 @@ const game: Game = generateLevel({ seed });
 const rig = new SceneRig(canvas, detectQuality());
 const terrain = new TerrainRenderer(game.map);
 const creatureRenderer = new CreatureRenderer();
+const roomProps = new RoomPropRenderer(game.map);
 const torches = new TorchSystem(game.map);
 const particles = new ParticleSystem();
 
 rig.scene.add(terrain.group);
 rig.scene.add(creatureRenderer.group);
+rig.scene.add(roomProps.group);
 rig.scene.add(torches.group);
 rig.scene.add(particles.points);
 
@@ -180,6 +183,11 @@ function frame(): void {
 
   terrain.syncIfDirty();
   terrain.update(time);
+  roomProps.syncIfDirty();
+  // Gold heaps grow as the vault fills, so a treasury reads at a glance.
+  const cap = game.treasuryCap();
+  roomProps.setGoldFill(cap > 0 ? game.goldOf(Owner.Player) / cap : 0);
+  roomProps.update(time);
   torches.syncIfDirty();
   torches.update(time, camera.target);
   creatureRenderer.update(game.creatures, time, paused ? 0 : dt);
@@ -271,6 +279,7 @@ if (import.meta.hot) {
     camera.dispose();
     hud.dispose();
     terrain.dispose();
+    roomProps.dispose();
     creatureRenderer.dispose();
     torches.dispose();
     particles.dispose();
