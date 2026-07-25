@@ -12,6 +12,19 @@ import {
   Rank, WORN_RANKS, auraStrength, buildRankRegalia, eyeGlowFor, rankOf, rankScale, rigFor,
 } from './creatureRank';
 import { makeGlowTexture } from './textures';
+import { PartBuilder } from './creatureModels';
+
+/** A bulging sack with coins spilling over the tie. */
+function buildGoldSack(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.sphere(0.145, 0.20, 0.22, 0.10, 0x8a6a3a, 1.0, 1.15, 0.95, 8);
+  b.sphere(0.10, 0.20, 0.33, 0.10, 0x6e5230, 1.0, 0.7, 0.95, 7);
+  // The neck, and the coins showing through it.
+  b.cylinder(0.045, 0.06, 0.06, 0.20, 0.38, 0.10, 0x4e3a22, 0, 0, 0, 6);
+  b.sphere(0.05, 0.20, 0.41, 0.10, 0xffd700, 1, 0.7, 1, 7);
+  b.cylinder(0.03, 0.03, 0.012, 0.17, 0.43, 0.12, 0xffec8b, 0.3, 0, 0.2, 6);
+  return b.build();
+}
 
 /**
  * Renders every creature in the dungeon.
@@ -38,6 +51,14 @@ interface TypeBatch {
   regalia: Map<Rank, THREE.InstancedMesh>;
   /** Champions only: a slow ring of light at the feet. */
   aura: THREE.InstancedMesh;
+  /**
+   * A sack of gold, drawn only while a creature is carrying one.
+   *
+   * Imps spend most of a level hauling, and in the reference art that is what
+   * tells you at a glance that the dungeon is *working* — a floor of little red
+   * figures each lugging a bag. Ours carried gold as a number nobody could see.
+   */
+  sack: THREE.InstancedMesh;
   limbsPer: number;
   flapping: boolean;
   limbOffset: THREE.Vector3;
@@ -54,6 +75,7 @@ export class CreatureRenderer {
   private readonly ringMaterial: THREE.MeshBasicMaterial;
   private readonly shadowMaterial: THREE.MeshBasicMaterial;
   private readonly auraMaterial: THREE.MeshBasicMaterial;
+  private readonly sackMaterial: THREE.MeshStandardMaterial;
 
   private readonly dummy = new THREE.Object3D();
   private readonly limbDummy = new THREE.Object3D();
@@ -122,6 +144,13 @@ export class CreatureRenderer {
       color: 0x000000,
       blending: THREE.NormalBlending,
       depthWrite: false,
+    });
+    // Coin gold, so a hauled sack catches the light the way the heaps do.
+    this.sackMaterial = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.32,
+      metalness: 0.85,
+      envMapIntensity: 2.0,
     });
     this.auraMaterial = new THREE.MeshBasicMaterial({
       map: makeGlowTexture(96, 'rgba(255,214,140,0.9)'),
@@ -194,6 +223,13 @@ export class CreatureRenderer {
       this.group.add(mesh);
     }
 
+    const sack = new THREE.InstancedMesh(buildGoldSack(), this.sackMaterial, MAX_PER_TYPE);
+    sack.castShadow = true;
+    sack.frustumCulled = false;
+    sack.count = 0;
+    sack.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(sack);
+
     const auraGeo = new THREE.PlaneGeometry(1, 1);
     auraGeo.rotateX(-Math.PI / 2);
     const aura = new THREE.InstancedMesh(auraGeo, this.auraMaterial, MAX_PER_TYPE);
@@ -206,7 +242,7 @@ export class CreatureRenderer {
     aura.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
     batch = {
-      body, limb, eyes, ring, shadow, regalia, aura, limbsPer,
+      body, limb, eyes, ring, shadow, regalia, aura, sack, limbsPer,
       flapping: model.flapping,
       limbOffset: model.limbOffset,
       height: model.height,
@@ -241,6 +277,7 @@ export class CreatureRenderer {
         batch.shadow.count = 0;
         for (const mesh of batch.regalia.values()) mesh.count = 0;
         batch.aura.count = 0;
+        batch.sack.count = 0;
         this.pickTable.get(batch.body)?.splice(0);
       }
     }
@@ -255,6 +292,7 @@ export class CreatureRenderer {
       for (const rank of WORN_RANKS) rankN.set(rank, 0);
       let auraN = 0;
 
+      let sackN = 0;
       let limbN = 0;
       for (let n = 0; n < list.length; n++) {
         const c = list[n];
@@ -274,6 +312,13 @@ export class CreatureRenderer {
             rankN.set(rank, at + 1);
           }
         }
+        // Hauling: a bag slung at the hip, riding the body's own matrix so it
+        // bobs and leans with the walk.
+        if (c.goldHeld > 0 && c.state !== CreatureState.Dying) {
+          batch.body.getMatrixAt(n, this.matrix);
+          batch.sack.setMatrixAt(sackN++, this.matrix);
+        }
+
         const glow = auraStrength(c, time);
         if (glow > 0 && c.state !== CreatureState.Dying) {
           const size = CREATURE_SPECS[c.type].scale * rankScale(c.level) * 2.3;
@@ -294,6 +339,8 @@ export class CreatureRenderer {
         mesh.count = rankN.get(rank) ?? 0;
         mesh.instanceMatrix.needsUpdate = true;
       }
+      batch.sack.count = sackN;
+      if (sackN > 0) batch.sack.instanceMatrix.needsUpdate = true;
       batch.aura.count = auraN;
       if (auraN > 0) {
         batch.aura.instanceMatrix.needsUpdate = true;
@@ -514,6 +561,7 @@ export class CreatureRenderer {
       b.ring.geometry.dispose();
       b.shadow.geometry.dispose();
       b.aura.geometry.dispose();
+      b.sack.geometry.dispose();
       for (const mesh of b.regalia.values()) mesh.geometry.dispose();
     }
     this.bodyMaterial.dispose();
@@ -522,5 +570,6 @@ export class CreatureRenderer {
     this.ringMaterial.dispose();
     this.shadowMaterial.dispose();
     this.auraMaterial.dispose();
+    this.sackMaterial.dispose();
   }
 }

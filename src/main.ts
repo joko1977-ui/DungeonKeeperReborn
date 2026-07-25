@@ -11,6 +11,7 @@ import { CreatureRenderer } from './render/creatureRenderer';
 import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
 import { LandmarkRenderer } from './render/landmarks';
+import { LavaGlow } from './render/lavaGlow';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
 import { RoomPropRenderer } from './render/roomProps';
@@ -47,6 +48,7 @@ const roomProps = new RoomPropRenderer(game.map);
 const devices = new DeviceRenderer(game.map);
 const landmarks = new LandmarkRenderer(game.map);
 const atmosphere = new Atmosphere();
+const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
 const particles = new ParticleSystem();
 
@@ -56,6 +58,7 @@ rig.scene.add(roomProps.group);
 rig.scene.add(devices.group);
 rig.scene.add(landmarks.group);
 rig.scene.add(atmosphere.group);
+rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
 rig.scene.add(particles.points);
 
@@ -205,6 +208,8 @@ function frame(): void {
   landmarks.syncIfDirty();
   landmarks.update(time, camera.getDistance());
   atmosphere.update(dt, camera.target, time);
+  lavaGlow.syncIfDirty();
+  lavaGlow.update(time, camera.target);
   torches.syncIfDirty();
   torches.update(time, camera.target);
   creatureRenderer.update(game.creatures, time, paused ? 0 : dt);
@@ -250,6 +255,7 @@ function frame(): void {
       // The air is the cheapest thing to thin out, so it goes first — before
       // bloom, before shadows, before resolution.
       atmosphere.setDensity(fps > 45 ? 1 : fps > 30 ? 0.6 : fps > 20 ? 0.3 : 0);
+      lavaGlow.setBudget(fps > 40 ? 3 : fps > 25 ? 2 : 1);
     }
   }
 
@@ -314,6 +320,7 @@ if (import.meta.hot) {
     devices.dispose();
     landmarks.dispose();
     atmosphere.dispose();
+    lavaGlow.dispose();
     creatureRenderer.dispose();
     torches.dispose();
     particles.dispose();

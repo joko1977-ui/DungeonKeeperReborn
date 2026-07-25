@@ -96,8 +96,24 @@ export function generateLevel(opts: LevelOptions = {}): Game {
   ringWith(map, gem.x, gem.y, 3, Terrain.Rock, (x, y) => !(x === gem.x && y > gem.y));
 
   // --- water and lava features -------------------------------------------
+  //
+  // Lava is the realm's light. One small pool in a corner lit nothing and was
+  // never seen; a scatter of lakes means most of the dungeon you dig ends up
+  // within reach of one, and the walls around them glow. They are kept off the
+  // direct line between the heart and the hero gate so a keeper is never walled
+  // in by molten rock.
   carveLiquid(map, rng, Math.round(width * 0.5), Math.round(height * 0.45), 5, Terrain.Water);
-  carveLiquid(map, rng, Math.round(width * 0.66), Math.round(height * 0.58), 4, Terrain.Lava);
+  const lavaSites: Array<[number, number, number]> = [
+    [0.66, 0.58, 5],
+    [0.20, 0.30, 4],
+    [0.46, 0.86, 5],
+    [0.86, 0.46, 4],
+    [0.34, 0.62, 3],
+    [0.72, 0.16, 4],
+  ];
+  for (const [fx, fy, r] of lavaSites) {
+    carveLiquid(map, rng, Math.round(width * fx), Math.round(height * fy), r, Terrain.Lava);
+  }
 
   // --- the player's starting dungeon --------------------------------------
   carveRoom(map, heart.x - 4, heart.y - 4, heart.x + 4, heart.y + 4, Owner.Player);

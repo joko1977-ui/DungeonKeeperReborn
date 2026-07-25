@@ -152,7 +152,10 @@ const EARTH: MaterialRecipe = {
     const rnd = makeRandom(EARTH_SEED);
     const vein = fbm(x * 7 + 11.3, y * 7, 4, 7, rnd);
     const flesh = clamp01((vein - 0.52) / 0.22);
-    return [flesh * 0.22, flesh * 0.03, flesh * 0.03];
+    // Kept very low on purpose. At a fifth of this the veins were readable on
+    // one wall and, multiplied across every earth tile on the map, turned the
+    // whole dungeon into a red lantern.
+    return [flesh * 0.05, flesh * 0.008, flesh * 0.008];
   },
 };
 
