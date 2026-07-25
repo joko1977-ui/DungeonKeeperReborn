@@ -39,10 +39,13 @@ thin — a native window around the web build — so there is only ever one game
 maintain.
 
 ```bash
-npm install -g @tauri-apps/cli
-npm run build
-tauri build          # bundles .msi/.exe, .dmg, .deb and .AppImage
+npm install
+npm run tauri build  # bundles .msi/.exe, .dmg, .deb and .AppImage
 ```
+
+Icons under `src-tauri/icons/` are generated from a single source with
+`npm run tauri icon <file.png>`; they are committed because the Rust build
+embeds them at compile time.
 
 CI builds all three desktop platforms and the web bundle on every push, and
 deploys the web build to GitHub Pages from the default branch; see

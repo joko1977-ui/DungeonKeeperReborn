@@ -29,8 +29,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "msi", "nsis", "dmg"],
-    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"],
+    "targets": [
+      "deb",
+      "appimage",
+      "msi",
+      "nsis",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "Game",
     "shortDescription": "Carve a dungeon, lure creatures, repel the heroes.",
     "longDescription": "A clean-room reimagining of the 1997 dungeon-management classic, with modern rendering and the original's look and feel."
