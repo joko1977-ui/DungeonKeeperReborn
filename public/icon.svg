@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="52%" r="55%">
+      <stop offset="0%" stop-color="#ff6a2a"/>
+      <stop offset="55%" stop-color="#8a1f12"/>
+      <stop offset="100%" stop-color="#2a0a06"/>
+    </radialGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a2e22"/>
+      <stop offset="100%" stop-color="#100c09"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#stone)"/>
+  <circle cx="256" cy="264" r="150" fill="url(#glow)"/>
+  <!-- The Dungeon Heart, beating in the dark. -->
+  <path d="M256 392C176 322 132 282 132 226a70 70 0 0 1 124-42 70 70 0 0 1 124 42c0 56-44 96-124 166z"
+        fill="#c4322a" stroke="#f0a03a" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M256 214v96M212 262h88" stroke="#ffd88a" stroke-width="16" stroke-linecap="round"/>
+</svg>

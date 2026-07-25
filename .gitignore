@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.DS_Store
+.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Scratch test harnesses
+.browsertest.mjs
+.diag*.mjs
+.shots.mjs
+.functest.mjs

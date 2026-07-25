@@ -1,0 +1,25 @@
+{
+  "name": "dungeon-keeper-reborn",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A clean-room reimagining of the 1997 dungeon-management classic: original look and feel, modern rendering, runs everywhere.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/dk-smoke.mjs --log-level=error && node node_modules/.cache/dk-smoke.mjs",
+    "test": "npm run typecheck && npm run smoke"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/three": "^0.169.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-pwa": "^0.20.5"
+  }
+}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0a0705" />
+    <meta name="description" content="Carve a dungeon, lure creatures, repel the heroes. A clean-room reimagining of the 1997 dungeon-management classic." />
+    <meta name="color-scheme" content="dark" />
+    <title>Dungeon Keeper Reborn</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <style>
+      /* Shown until the module has parsed and the first frame is up. */
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #05040a;
+        color: #9c7530;
+        font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        font-size: 13px;
+        z-index: 100;
+        transition: opacity 500ms ease;
+      }
+      #boot.gone { opacity: 0; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas" class="cursor-hand"></canvas>
+    <div id="ui-root"></div>
+    <div id="boot">Carving the dungeon…</div>
+    <script type="module">
+      // Fade the boot card once the game module has taken over the screen.
+      window.addEventListener('dk-ready', () => {
+        const boot = document.getElementById('boot');
+        if (boot) {
+          boot.classList.add('gone');
+          setTimeout(() => boot.remove(), 600);
+        }
+      });
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,79 @@
+/**
+ * Full-screen overlays: the opening briefing and the end-of-level verdict.
+ *
+ * The original opened every level on a scroll narrated with obvious relish, and
+ * the controls it taught you were unusual enough to be worth spelling out. This
+ * is the same idea: read it once, dismiss it, get on with digging.
+ */
+
+function ensureOverlay(container: HTMLElement): HTMLElement {
+  const existing = container.querySelector('#overlay');
+  if (existing instanceof HTMLElement) return existing;
+  const overlay = document.createElement('div');
+  overlay.id = 'overlay';
+  container.appendChild(overlay);
+  return overlay;
+}
+
+/** The briefing. `returning` is true when the player asked to see it again. */
+export function showBriefing(
+  container: HTMLElement,
+  onDismiss: () => void,
+  returning: boolean,
+): void {
+  const overlay = ensureOverlay(container);
+  overlay.classList.remove('hidden');
+  overlay.innerHTML = `
+    <div class="overlay-card">
+      <h1>Dungeon Keeper Reborn</h1>
+      <h2>${returning ? 'Controls' : 'The realm above is far too cheerful'}</h2>
+      ${returning ? '' : `
+        <p>
+          Your Dungeon Heart beats in the dark. Tag the earth and your imps will
+          dig it out; claim what they dig and the dungeon becomes yours. Build
+          a lair and a hatchery, and creatures will come to you through the
+          portal — feed them, pay them, and they may even fight for you when the
+          heroes arrive. They always arrive.
+        </p>`}
+      <dl class="keys">
+        <dt>Left click</dt><dd>Tag walls for excavation — drag to tag a whole slab</dd>
+        <dt>Left click</dt><dd>Snatch up one of your creatures; click again to drop it on your floor</dd>
+        <dt>Right click</dt><dd>Slap a creature to hurry it along, or clear an excavation tag</dd>
+        <dt>Middle drag</dt><dd>Rotate the view &nbsp;·&nbsp; <b>Q</b> / <b>E</b> to spin</dd>
+        <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>
+        <dt>R / F / C</dt><dd>Rooms, spells and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
+        <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
+        <dt>Touch</dt><dd>Drag to pan, pinch to zoom, twist to rotate</dd>
+      </dl>
+      <button class="big-button" id="overlay-dismiss">
+        ${returning ? 'Back to the dungeon' : 'Begin'}
+      </button>
+    </div>`;
+
+  const button = overlay.querySelector('#overlay-dismiss');
+  button?.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    onDismiss();
+  });
+}
+
+/** The verdict screen, shown when the heart falls or the realm is won. */
+export function showOutcome(
+  container: HTMLElement,
+  status: 'won' | 'lost',
+  onRestart: () => void,
+): void {
+  const overlay = ensureOverlay(container);
+  overlay.classList.remove('hidden');
+  const won = status === 'won';
+  overlay.innerHTML = `
+    <div class="overlay-card">
+      <h1>${won ? 'The realm is yours' : 'Your heart is broken'}</h1>
+      <h2>${won
+        ? 'The heroes are scattered and the land above has learned to be afraid.'
+        : 'The last of your dungeon goes dark. Somewhere, a knight is being congratulated.'}</h2>
+      <button class="big-button" id="overlay-restart">Dig again</button>
+    </div>`;
+
+  overlay.querySelector('#overlay-restart')?.addEventListener('click', onRestart);
+}
