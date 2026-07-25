@@ -1,4 +1,5 @@
 import { RoomType, SpellType } from '../core/constants';
+import { DoorType, TrapType } from '../core/devices';
 import { CreatureType } from '../core/creatures';
 
 /**
@@ -72,6 +73,16 @@ const ROOM_ICONS: Record<RoomType, string> = {
     '#a8865a',
   ),
 
+  // Workshop: an anvil with a hammer over it.
+  [RoomType.Workshop]: wrap(
+    `<path d="M5 13h22l-4 5H9z" fill="#8a8f9a"/>
+     <path d="M13 18h6v6h-6z" fill="#6a7078"/>
+     <path d="M9 24h14v3H9z" fill="#4a5058"/>
+     <path d="M20 4l6 3-3 5-5-3z" fill="#c8a860"/>
+     <path d="M18 9L9 16" stroke="#7a5a2a" stroke-width="2.4"/>`,
+    '#b8a070',
+  ),
+
   // Portal: a ring you step through.
   [RoomType.Portal]: wrap(
     `<ellipse cx="16" cy="16" rx="8" ry="11" fill="#3a1f5a"/>
@@ -79,6 +90,82 @@ const ROOM_ICONS: Record<RoomType, string> = {
     '#a06ae0',
   ),
 };
+
+/* --------------------------------------------------------- traps, doors -- */
+
+const TRAP_ICONS: Record<TrapType, string> = {
+  [TrapType.None]: wrap('<circle cx="16" cy="16" r="9"/>'),
+  [TrapType.Alarm]: wrap(
+    `<path d="M16 5a7 7 0 0 1 7 7v6l3 4H6l3-4v-6a7 7 0 0 1 7-7z" fill="#d8c040"/>
+     <path d="M13 24a3 3 0 0 0 6 0" stroke="#6a5a10"/>
+     <path d="M4 9L2 6M28 9l2-3" stroke="#f0e08a"/>`,
+    '#e8d060',
+  ),
+  [TrapType.PoisonGas]: wrap(
+    `<circle cx="12" cy="17" r="6" fill="#76c04a"/>
+     <circle cx="20" cy="14" r="7" fill="#8ed05a"/>
+     <circle cx="19" cy="22" r="5" fill="#5ea83a"/>
+     <path d="M12 6v3M20 4v4" stroke="#b8e88a"/>`,
+    '#9ad868',
+  ),
+  [TrapType.Lightning]: wrap(
+    `<rect x="5" y="23" width="22" height="5" rx="1" fill="#4a4a58"/>
+     <path d="M18 3L8 17h6l-3 9 12-15h-6l4-8z" fill="#8fd0ff"/>`,
+    '#c0e8ff',
+  ),
+  [TrapType.Boulder]: wrap(
+    `<circle cx="15" cy="15" r="10" fill="#9a8a76"/>
+     <circle cx="12" cy="12" r="3" fill="#7a6a58"/>
+     <circle cx="19" cy="18" r="2.4" fill="#7a6a58"/>
+     <path d="M3 28h26" stroke="#5a4a3a" stroke-width="2.4"/>`,
+    '#b0a08c',
+  ),
+  [TrapType.WordOfPower]: wrap(
+    `<circle cx="16" cy="16" r="4" fill="#d070ff"/>
+     <circle cx="16" cy="16" r="8" stroke="#b050e8"/>
+     <circle cx="16" cy="16" r="12" stroke="#8a30c0"/>`,
+    '#d88aff',
+  ),
+};
+
+export function trapIcon(type: TrapType): string {
+  return TRAP_ICONS[type] ?? TRAP_ICONS[TrapType.None];
+}
+
+const DOOR_ICONS: Record<DoorType, string> = {
+  [DoorType.None]: wrap('<rect x="9" y="5" width="14" height="22" rx="1"/>'),
+  [DoorType.Wooden]: wrap(
+    `<rect x="8" y="4" width="16" height="24" rx="1" fill="#8a5f30"/>
+     <path d="M12 4v24M16 4v24M20 4v24" stroke="#5a3c1c"/>
+     <circle cx="20.5" cy="16" r="1.4" fill="#e8c060"/>`,
+    '#a87a44',
+  ),
+  [DoorType.Braced]: wrap(
+    `<rect x="8" y="4" width="16" height="24" rx="1" fill="#9a7a44"/>
+     <path d="M8 10h16M8 22h16" stroke="#4a4a54" stroke-width="2.4"/>
+     <circle cx="20.5" cy="16" r="1.4" fill="#e8c060"/>`,
+    '#c09a5a',
+  ),
+  [DoorType.Iron]: wrap(
+    `<rect x="8" y="4" width="16" height="24" rx="1" fill="#a8aec0"/>
+     <path d="M16 4v24" stroke="#6a7080" stroke-width="2"/>
+     <circle cx="11" cy="8" r="1.1" fill="#6a7080"/>
+     <circle cx="21" cy="8" r="1.1" fill="#6a7080"/>
+     <circle cx="11" cy="24" r="1.1" fill="#6a7080"/>
+     <circle cx="21" cy="24" r="1.1" fill="#6a7080"/>`,
+    '#c0c6d4',
+  ),
+  [DoorType.Magic]: wrap(
+    `<rect x="8" y="4" width="16" height="24" rx="1" fill="#4a2a70"/>
+     <circle cx="16" cy="16" r="5" fill="#c08aff"/>
+     <path d="M16 7v3M16 22v3M9 16h3M20 16h3" stroke="#d8b0ff"/>`,
+    '#b080f0',
+  ),
+};
+
+export function doorIcon(type: DoorType): string {
+  return DOOR_ICONS[type] ?? DOOR_ICONS[DoorType.None];
+}
 
 export function roomIcon(type: RoomType): string {
   return ROOM_ICONS[type] ?? ROOM_ICONS[RoomType.None];
@@ -221,6 +308,13 @@ export const TAB_ICONS = {
     `<circle cx="16" cy="11" r="5" fill="#b8452c"/>
      <path d="M7 28c0-6 4-9 9-9s9 3 9 9z" fill="#7a2a18"/>`,
     '#e0663a',
+  ),
+  workshop: wrap(
+    `<path d="M4 12h24l-4 5H8z" fill="#8a8f9a"/>
+     <path d="M13 17h6v7h-6z" fill="#6a7078"/>
+     <path d="M8 24h16v3H8z" fill="#4a5058"/>
+     <path d="M21 3l6 3-3 5-5-3z" fill="#c8a860"/>`,
+    '#b8a070',
   ),
   sell: wrap(
     `<path d="M6 18l8-8 5 5-8 8H6z" fill="#8a6520"/>

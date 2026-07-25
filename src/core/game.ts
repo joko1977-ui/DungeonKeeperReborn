@@ -30,6 +30,15 @@ import {
   maxHpOf,
   wageOf,
 } from './creatures';
+import {
+  DOOR_SPECS,
+  DoorType,
+  GAS_DURATION,
+  MANUFACTURE_RATE,
+  ManufactureTarget,
+  TRAP_SPECS,
+  TrapType,
+} from './devices';
 import { PathFinder } from './pathfinding';
 import { RoomIndex, buildRoom, heartTile, nearestRoomTile, sellRoom, treasuryCapacity } from './rooms';
 import { TileMap } from './tilemap';
@@ -52,7 +61,8 @@ export interface GameEffect {
 export type NarrationCue =
   | 'level-start' | 'creature-joined' | 'creature-left' | 'creature-died'
   | 'creature-levelled' | 'payday' | 'payday-broke' | 'treasury-full'
-  | 'heroes' | 'victory' | 'defeat' | 'no-mana' | 'bad-placement';
+  | 'heroes' | 'victory' | 'defeat' | 'no-mana' | 'bad-placement'
+  | 'manufactured' | 'trap-fired' | 'door-broken';
 
 /** A line in the message log, shown in the panel like the original's ticker. */
 export interface GameMessage {
@@ -98,6 +108,17 @@ export class Game implements AIWorld {
   /** Set when the player is holding something. */
   handCreature: Creature | null = null;
   handGold = 0;
+
+  /* ---- workshop ---- */
+  /** What the workshop is currently building. */
+  manufactureTarget: ManufactureTarget = null;
+  /** Points accumulated toward the current target. */
+  manufacturePoints = 0;
+  /** Finished items waiting to be placed. */
+  readonly trapStock = new Map<TrapType, number>();
+  readonly doorStock = new Map<DoorType, number>();
+  /** Lingering poison clouds: tile index -> ticks remaining. */
+  private readonly gasClouds = new Map<number, number>();
 
   constructor(map: TileMap) {
     this.map = map;
@@ -227,6 +248,9 @@ export class Game implements AIWorld {
 
     this.updateResources();
     this.updateVision();
+    this.updateWorkshop();
+    this.updateTraps();
+    this.updateGas();
 
     if (this.tickCount >= this.nextPayday) {
       this.nextPayday = this.tickCount + PAYDAY_INTERVAL;
@@ -274,6 +298,226 @@ export class Game implements AIWorld {
         this.map.revealRadius(this.map.xOf(i), this.map.yOf(i), 6);
       }
     }
+  }
+
+  /* ------------------------------------------------------- the workshop -- */
+
+  /** Workers in a workshop push the current build order along. */
+  private updateWorkshop(): void {
+    if (!this.manufactureTarget) return;
+    const workshopTiles = this.rooms.count(this.map, Owner.Player, RoomType.Workshop);
+    if (workshopTiles === 0) return;
+
+    // Only creatures actually standing in the workshop contribute.
+    let workers = 0;
+    for (const c of this.creatures) {
+      if (c.owner !== Owner.Player || c.inHand) continue;
+      if (CREATURE_SPECS[c.type].worker) continue;
+      const x = Math.round(c.x), y = Math.round(c.y);
+      if (this.map.roomAt(x, y) === RoomType.Workshop
+        && this.map.ownerAt(x, y) === Owner.Player) workers++;
+    }
+    if (workers === 0) return;
+
+    this.manufacturePoints += workers * MANUFACTURE_RATE;
+
+    const target = this.manufactureTarget;
+    const spec = target.kind === 'trap'
+      ? TRAP_SPECS[target.type] : DOOR_SPECS[target.type];
+    if (this.manufacturePoints < spec.build) return;
+
+    // Finished — but it still has to be paid for.
+    if (this.withdrawGold(Owner.Player, spec.cost) < spec.cost) {
+      this.notifyThrottled(
+        `You cannot afford to finish the ${spec.name}.`, 'manufacture-gold');
+      return;
+    }
+    this.manufacturePoints -= spec.build;
+    if (target.kind === 'trap') {
+      this.trapStock.set(target.type, (this.trapStock.get(target.type) ?? 0) + 1);
+    } else {
+      this.doorStock.set(target.type, (this.doorStock.get(target.type) ?? 0) + 1);
+    }
+    this.notify(`Your workshop has finished a ${spec.name}.`, 'manufactured');
+  }
+
+  /** Choose what the workshop builds next. Progress carries over. */
+  setManufactureTarget(target: ManufactureTarget): void {
+    this.manufactureTarget = target;
+  }
+
+  /** How far along the current build order is, 0..1. */
+  manufactureProgress(): number {
+    const t = this.manufactureTarget;
+    if (!t) return 0;
+    const spec = t.kind === 'trap' ? TRAP_SPECS[t.type] : DOOR_SPECS[t.type];
+    return spec.build > 0 ? Math.min(1, this.manufacturePoints / spec.build) : 0;
+  }
+
+  stockOfTrap(type: TrapType): number {
+    return this.trapStock.get(type) ?? 0;
+  }
+
+  stockOfDoor(type: DoorType): number {
+    return this.doorStock.get(type) ?? 0;
+  }
+
+  /**
+   * Place a manufactured trap. It must go on your own bare floor — not in a
+   * room, and not on top of another device.
+   */
+  placeTrap(type: TrapType, x: number, y: number): boolean {
+    if (this.stockOfTrap(type) <= 0) return false;
+    if (!this.canPlaceDevice(x, y)) {
+      this.notifyThrottled('Traps go on your own empty floor.', 'trap-place', 'bad-placement');
+      return false;
+    }
+    const i = this.map.idx(x, y);
+    this.map.trap[i] = type;
+    this.map.trapCharges[i] = TRAP_SPECS[type].charges;
+    this.map.version++;
+    this.trapStock.set(type, this.stockOfTrap(type) - 1);
+    this.effect('build', x, y);
+    return true;
+  }
+
+  /** Place a manufactured door. Doors want a corridor, not open floor. */
+  placeDoor(type: DoorType, x: number, y: number): boolean {
+    if (this.stockOfDoor(type) <= 0) return false;
+    if (!this.canPlaceDevice(x, y)) {
+      this.notifyThrottled('Doors go on your own empty floor.', 'door-place', 'bad-placement');
+      return false;
+    }
+    // A door needs something to hang off: solid ground on opposite sides.
+    const eastWest = this.map.isSolidAt(x - 1, y) && this.map.isSolidAt(x + 1, y);
+    const northSouth = this.map.isSolidAt(x, y - 1) && this.map.isSolidAt(x, y + 1);
+    if (!eastWest && !northSouth) {
+      this.notifyThrottled(
+        'A door needs a doorway — walls on both sides.', 'door-frame', 'bad-placement');
+      return false;
+    }
+    const i = this.map.idx(x, y);
+    this.map.door[i] = type;
+    this.map.doorHp[i] = DOOR_SPECS[type].hp;
+    this.map.version++;
+    this.doorStock.set(type, this.stockOfDoor(type) - 1);
+    this.effect('build', x, y);
+    return true;
+  }
+
+  private canPlaceDevice(x: number, y: number): boolean {
+    if (!this.map.inBounds(x, y)) return false;
+    const i = this.map.idx(x, y);
+    return this.map.terrain[i] === Terrain.Claimed
+      && this.map.owner[i] === Owner.Player
+      && this.map.room[i] === RoomType.None
+      && this.map.trap[i] === 0
+      && this.map.door[i] === 0;
+  }
+
+  /** Damage a door. Returns true when it comes off its hinges. */
+  damageDoor(x: number, y: number, amount: number): boolean {
+    const i = this.map.idx(x, y);
+    if (this.map.door[i] === 0) return false;
+    this.map.doorHp[i] -= amount;
+    this.effect('hit', x, y);
+    if (this.map.doorHp[i] > 0) return false;
+    const wasMine = this.map.owner[i] === Owner.Player;
+    this.map.door[i] = 0;
+    this.map.doorHp[i] = 0;
+    this.map.version++;
+    this.effect('poof', x, y);
+    if (wasMine) this.notify('One of your doors has been broken down!', 'door-broken');
+    return true;
+  }
+
+  /** Fire any trap an intruder has walked onto. */
+  private updateTraps(): void {
+    if (this.tickCount % 3 !== 0) return;
+    const map = this.map;
+
+    for (const c of this.creatures) {
+      if (c.inHand || c.state === CreatureState.Dying) continue;
+      // Only intruders set off a keeper's traps.
+      if (c.owner === Owner.Player || c.owner === Owner.None) continue;
+      const x = Math.round(c.x), y = Math.round(c.y);
+      if (!map.inBounds(x, y)) continue;
+      const i = map.idx(x, y);
+      const type = map.trap[i] as TrapType;
+      if (type === TrapType.None || map.trapCharges[i] <= 0) continue;
+      if (map.owner[i] !== Owner.Player) continue;
+      this.fireTrap(type, i, x, y);
+    }
+  }
+
+  private fireTrap(type: TrapType, tile: number, x: number, y: number): void {
+    const spec = TRAP_SPECS[type];
+    this.map.trapCharges[tile]--;
+    if (this.map.trapCharges[tile] <= 0) {
+      this.map.trap[tile] = 0;
+      this.map.version++;
+    }
+
+    switch (type) {
+      case TrapType.Alarm:
+        // Everything you own drops what it is doing and comes here.
+        for (const c of this.creatures) {
+          if (c.owner !== Owner.Player || CREATURE_SPECS[c.type].worker) continue;
+          if (Math.hypot(c.x - x, c.y - y) > 30) continue;
+          const path = this.finder.find(
+            Math.round(c.x), Math.round(c.y), x, y,
+            (px, py) => isWalkable(this.map.terrainAt(px, py)),
+          );
+          if (path) { c.path = path; c.pathIndex = 0; c.state = CreatureState.Walking; }
+        }
+        this.effect('rally', x, y);
+        this.notify('An alarm trap has been triggered!', 'trap-fired');
+        break;
+
+      case TrapType.PoisonGas:
+        this.gasClouds.set(tile, GAS_DURATION);
+        this.effect('heal', x, y);
+        break;
+
+      default: {
+        // Boulder, lightning and word of power all resolve as a burst.
+        for (const other of this.creatures) {
+          if (other.owner === Owner.Player || other.owner === Owner.None) continue;
+          if (other.state === CreatureState.Dying) continue;
+          if (Math.hypot(other.x - x, other.y - y) > spec.radius) continue;
+          damageCreature(this, other, spec.damage);
+        }
+        this.effect(type === TrapType.Lightning ? 'lightning' : 'build', x, y);
+        break;
+      }
+    }
+    if (type !== TrapType.Alarm) {
+      this.notifyThrottled(`A ${spec.name} has fired.`, 'trap-fired', 'trap-fired');
+    }
+  }
+
+  /** Poison clouds keep working on whatever stands in them. */
+  private updateGas(): void {
+    if (this.gasClouds.size === 0) return;
+    const spec = TRAP_SPECS[TrapType.PoisonGas];
+    for (const [tile, ticks] of [...this.gasClouds]) {
+      if (ticks <= 0) { this.gasClouds.delete(tile); continue; }
+      this.gasClouds.set(tile, ticks - 1);
+      const gx = this.map.xOf(tile), gy = this.map.yOf(tile);
+      if (this.tickCount % 10 !== 0) continue;
+      this.effect('heal', gx, gy);
+      for (const c of this.creatures) {
+        if (c.owner === Owner.Player || c.owner === Owner.None) continue;
+        if (c.state === CreatureState.Dying) continue;
+        if (Math.hypot(c.x - gx, c.y - gy) > spec.radius) continue;
+        damageCreature(this, c, spec.damage);
+      }
+    }
+  }
+
+  /** Tiles currently holding gas, for the renderer. */
+  gasTiles(): Iterable<number> {
+    return this.gasClouds.keys();
   }
 
   private runPayday(owner: Owner): void {

@@ -93,6 +93,8 @@ export enum RoomType {
   Bridge = 7,
   /** Creatures dumped here become miserable, then leave. */
   Portal = 8,
+  /** Creatures build traps and doors here. */
+  Workshop = 9,
 }
 
 export interface RoomSpec {
@@ -152,6 +154,11 @@ export const ROOM_SPECS: Record<RoomType, RoomSpec> = {
     blurb: 'Creatures enter your dungeon through here.',
     color: 0x6a3f8f, buildable: false,
   },
+  [RoomType.Workshop]: {
+    type: RoomType.Workshop, name: 'Workshop', cost: 175,
+    blurb: 'Creatures build traps and doors here. Nothing is placed that was not made.',
+    color: 0x7a6a4a, buildable: true,
+  },
 };
 
 /** Order the room buttons appear in the panel, matching the original's layout. */
@@ -161,6 +168,7 @@ export const ROOM_BUTTON_ORDER: RoomType[] = [
   RoomType.Hatchery,
   RoomType.TrainingRoom,
   RoomType.Library,
+  RoomType.Workshop,
   RoomType.Bridge,
 ];
 

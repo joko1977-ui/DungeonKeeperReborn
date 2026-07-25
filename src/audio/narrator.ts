@@ -104,11 +104,23 @@ const LINES: Record<NarrationCue, string[]> = {
     'Not there.',
     'That will not work, and you knew it.',
   ],
+  manufactured: [
+    'Your workshop has finished something unpleasant.',
+    'A new device, fresh from the workshop. Do put it somewhere useful.',
+  ],
+  'trap-fired': [
+    'A trap has gone off. Somebody is having a worse day than you.',
+    'Your trap worked. Try to look surprised.',
+  ],
+  'door-broken': [
+    'They have broken through a door. That was what it was for.',
+    'A door has fallen. They are inside.',
+  ],
 };
 
 /** Cues that must never be dropped, however busy the narrator is. */
 const HIGH_PRIORITY: ReadonlySet<NarrationCue> = new Set<NarrationCue>([
-  'level-start', 'victory', 'defeat', 'heroes', 'payday-broke',
+  'level-start', 'victory', 'defeat', 'heroes', 'payday-broke', 'door-broken',
 ]);
 
 /** Minimum gap between repeats of the same cue, in milliseconds. */
@@ -120,6 +132,9 @@ const CUE_COOLDOWN: Partial<Record<NarrationCue, number>> = {
   'no-mana': 15000,
   'treasury-full': 40000,
   'creature-left': 20000,
+  manufactured: 20000,
+  'trap-fired': 18000,
+  'door-broken': 15000,
 };
 const DEFAULT_COOLDOWN = 8000;
 

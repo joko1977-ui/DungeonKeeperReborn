@@ -245,6 +245,17 @@ html, body {
   align-content: start;
 }
 
+/* Prose inside the tool grid: spans every column instead of taking one cell. */
+.grid-note {
+  grid-column: 1 / -1;
+  align-self: start;
+  padding: 10px 12px;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 .tool-button {
   position: relative;
   min-height: 62px;
@@ -289,6 +300,23 @@ html, body {
 /* Unaffordable buttons stay visible but clearly out of reach. */
 .tool-button.unaffordable { filter: grayscale(0.75) brightness(0.6); }
 .tool-button.unaffordable .cost { color: var(--danger); }
+
+/* A pulsing bar marks whatever the workshop is currently building. */
+.tool-button .building {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold), var(--gold-dim));
+  animation: building-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes building-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
 
 /* Creature roster buttons show a live count. */
 .tool-button .count {

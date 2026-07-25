@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Owner, ROOM_SPECS, RoomType, SPELL_SPECS, SpellType, Terrain, isSolid } from '../core/constants';
+import { DoorType, TrapType } from '../core/devices';
 import { Creature } from '../core/creatures';
 import { Game } from '../core/game';
 import { CreatureRenderer } from '../render/creatureRenderer';
@@ -10,6 +11,8 @@ export type Tool =
   | { kind: 'hand' }
   | { kind: 'room'; room: RoomType }
   | { kind: 'spell'; spell: SpellType }
+  | { kind: 'trap'; trap: TrapType }
+  | { kind: 'door'; door: DoorType }
   | { kind: 'sell' };
 
 export interface HandEvents {
@@ -373,6 +376,26 @@ export class HandOfEvil {
         return;
       }
 
+      case 'trap':
+      case 'door': {
+        const tile = this.hoverTile;
+        if (tile < 0) return;
+        const tx = game.map.xOf(tile), ty = game.map.yOf(tile);
+        const placed = this.tool.kind === 'trap'
+          ? game.placeTrap(this.tool.trap, tx, ty)
+          : game.placeDoor(this.tool.door, tx, ty);
+        if (!placed) { this.flashBlocked(); return; }
+        // Keep the tool armed while stock lasts, so a corridor can be lined.
+        const left = this.tool.kind === 'trap'
+          ? game.stockOfTrap(this.tool.trap) : game.stockOfDoor(this.tool.door);
+        if (left <= 0) {
+          const consumed = this.tool;
+          this.tool = { kind: 'hand' };
+          this.events.onToolConsumed?.(consumed);
+        }
+        return;
+      }
+
       case 'room':
       case 'sell':
         // Rectangle tools preview during the drag and commit on release.
@@ -543,6 +566,7 @@ export class HandOfEvil {
     if (this.tool.kind === 'spell') return 'cursor-spell';
     if (this.tool.kind === 'room') return 'cursor-build';
     if (this.tool.kind === 'sell') return 'cursor-sell';
+    if (this.tool.kind === 'trap' || this.tool.kind === 'door') return 'cursor-build';
     if (this.hoverCreature) return 'cursor-grab';
     return 'cursor-hand';
   }

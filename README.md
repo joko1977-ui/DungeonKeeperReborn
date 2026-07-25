@@ -70,7 +70,7 @@ reproduced exactly.
 | **Middle drag**, **Q** / **E** | Rotate the view. |
 | **Wheel**, **PgUp/PgDn** | Zoom. |
 | **WASD** / arrows / screen edge | Move the view. |
-| **R** / **F** / **C** | Rooms, Spells and Creatures tabs. **1–9** picks from the open tab. |
+| **R** / **F** / **T** / **C** | Rooms, Spells, Workshop and Creatures tabs. **1–9** picks from the open tab. |
 | **Space** | Pause. **Esc** puts down the selected tool. |
 | **Top right** | Toggle the sound mix and the narrator. |
 
@@ -112,11 +112,36 @@ Play follows the original's loop:
    will not come through your portal without a bed to sleep in and food to eat.
 5. **Keep them.** Creatures get hungry, tired and angry. Unpaid creatures at
    payday become furious; furious creatures walk out through your portal.
-6. **Fight.** Heroes arrive in escalating waves from the hero gate. Lose your
+6. **Manufacture.** A workshop staffed by trolls or bile demons builds traps
+   and doors. Nothing can be placed that has not been built and paid for first,
+   so a workshop is worth the floor space and losing one hurts.
+7. **Fight.** Heroes arrive in escalating waves from the hero gate. Lose your
    Dungeon Heart and the level is over.
 
-Rooms available: Treasury, Lair, Hatchery, Training Room, Library and Bridge.
-Keeper spells: Create Imp, Heal, Speed, Lightning, Call to Arms and Possess.
+Rooms available: Treasury, Lair, Hatchery, Training Room, Library, Workshop and
+Bridge. Keeper spells: Create Imp, Heal, Speed, Lightning, Call to Arms and
+Possess.
+
+### Traps and doors
+
+Order a device from the Workshop tab (**T**), wait for the workshop to finish
+it, then click the same button again to place it. Traps go on your own bare
+claimed floor; doors need a doorway — walls on both sides of the tile.
+
+| Trap | Does |
+| --- | --- |
+| Alarm | Harmless, but every creature you own drops what it is doing and comes running. |
+| Poison Gas | Leaves a cloud that keeps hurting whatever stands in it. |
+| Lightning | One hard strike on whatever crossed it. Five charges. |
+| Boulder | Heavy damage, single use. |
+| Word of Power | A wide shockwave. |
+
+Doors run Wooden, Braced, Iron, Magic — each one tougher than the last. Doors are
+deliberately *not* solid to the pathfinder: making them impassable would send
+intruders looking for another way round and they would never attack one. Instead
+the route goes through, and an intruder that reaches a door it does not own stops
+and breaks it down. The panel visibly darkens and leans as its integrity drops,
+so you can see which door is about to go.
 
 ## Sound
 
@@ -181,6 +206,7 @@ src/
     creatures.ts   the roster and the creature record
     ai.ts          needs-driven creature behaviour
     rooms.ts       placement, selling, room lookup index
+    devices.ts     trap and door specs, and the manufacture queue
     game.ts        the tick, the economy, spells, the Hand of Evil
     levelgen.ts    seeded realm generation
   render/      three.js
@@ -188,7 +214,8 @@ src/
     terrain.ts         the whole dungeon in two instanced draw calls
     creatureModels.ts  creature meshes built from primitives (25-40 parts each)
     creatureRenderer.ts instanced drawing and procedural animation
-    roomProps.ts       room furniture — heaps, nests, dummies, the Heart
+    roomProps.ts       room furniture — heaps, nests, dummies, anvils, the Heart
+    deviceRenderer.ts  traps, doors and the gas they leave behind
     effects.ts         torches, dynamic lights, particles
     scene.ts           renderer, lighting rig, post-processing
   audio/       the soundscape, all synthesised

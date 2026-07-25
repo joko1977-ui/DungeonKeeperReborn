@@ -64,7 +64,8 @@ export const CREATURE_SPECS: Record<CreatureType, CreatureSpec> = {
   [CreatureType.Troll]: S({
     type: CreatureType.Troll, name: 'Troll', maxHp: 140, strength: 14, defense: 8,
     speed: 2.6, wage: 75, flying: false, worker: false,
-    jobs: [RoomType.TrainingRoom],
+    // Trolls are the ones who actually build the traps and doors.
+    jobs: [RoomType.Workshop, RoomType.TrainingRoom],
     appetite: 520, scale: 0.95, color: 0x5c7a4a, accent: 0x8fae6a, attractedBy: RoomType.TrainingRoom,
   }),
   [CreatureType.DemonSpawn]: S({
@@ -80,7 +81,8 @@ export const CREATURE_SPECS: Record<CreatureType, CreatureSpec> = {
   }),
   [CreatureType.BileDemon]: S({
     type: CreatureType.BileDemon, name: 'Bile Demon', maxHp: 220, strength: 18, defense: 12,
-    speed: 1.8, wage: 130, flying: false, worker: false, jobs: [RoomType.TrainingRoom],
+    speed: 1.8, wage: 130, flying: false, worker: false,
+    jobs: [RoomType.Workshop, RoomType.TrainingRoom],
     appetite: 320, scale: 1.25, color: 0x7a8f3a, accent: 0xb8c85a, attractedBy: RoomType.Hatchery,
   }),
   [CreatureType.Dragon]: S({
@@ -118,6 +120,8 @@ export enum CreatureState {
   Eating = 6,
   Training = 7,
   Researching = 8,
+  /** Building traps and doors in a workshop. */
+  Manufacturing = 15,
   Fighting = 9,
   Fleeing = 10,
   /** Picked up by the Hand of Evil. */
@@ -139,6 +143,7 @@ export const STATE_NAMES: Record<CreatureState, string> = {
   [CreatureState.Eating]: 'Eating',
   [CreatureState.Training]: 'Training',
   [CreatureState.Researching]: 'Researching',
+  [CreatureState.Manufacturing]: 'Manufacturing',
   [CreatureState.Fighting]: 'Fighting',
   [CreatureState.Fleeing]: 'Fleeing',
   [CreatureState.InHand]: 'In your hand',

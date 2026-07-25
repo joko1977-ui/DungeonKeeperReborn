@@ -18,6 +18,14 @@ import {
   xpForNextLevel,
 } from '../core/creatures';
 import { Game } from '../core/game';
+import {
+  DOOR_BUTTON_ORDER,
+  DOOR_SPECS,
+  DoorType,
+  TRAP_BUTTON_ORDER,
+  TRAP_SPECS,
+  TrapType,
+} from '../core/devices';
 import { Tool } from '../input/hand';
 import {
   CREATURE_GLYPH,
@@ -25,12 +33,14 @@ import {
   MANA_GLYPH,
   TAB_ICONS,
   creatureIcon,
+  doorIcon,
   roomIcon,
   spellIcon,
+  trapIcon,
 } from './icons';
 import { Minimap } from './minimap';
 
-type TabId = 'rooms' | 'spells' | 'creatures';
+type TabId = 'rooms' | 'spells' | 'workshop' | 'creatures';
 
 export interface HudCallbacks {
   onToolChange(tool: Tool): void;
@@ -147,6 +157,7 @@ export class Hud {
     const tabs: Array<{ id: TabId; icon: string; title: string }> = [
       { id: 'rooms', icon: TAB_ICONS.rooms, title: 'Rooms' },
       { id: 'spells', icon: TAB_ICONS.spells, title: 'Spells' },
+      { id: 'workshop', icon: TAB_ICONS.workshop, title: 'Workshop — traps and doors' },
       { id: 'creatures', icon: TAB_ICONS.creatures, title: 'Creatures' },
     ];
     for (const tab of tabs) {
@@ -202,6 +213,9 @@ export class Hud {
         this.toolTitle.textContent = 'Keeper Spells';
         for (const spell of SPELL_BUTTON_ORDER) this.toolGrid.appendChild(this.spellButton(spell));
         break;
+      case 'workshop':
+        this.buildWorkshopGrid();
+        break;
       case 'creatures':
         this.toolTitle.textContent = 'Your Creatures';
         this.buildCreatureGrid();
@@ -245,12 +259,99 @@ export class Hud {
     return button;
   }
 
+  /**
+   * The workshop tab. Every button does two jobs, which is how the original
+   * works: click one with stock and you arm it for placing; click one with no
+   * stock and the workshop starts building it instead.
+   */
+  private buildWorkshopGrid(): void {
+    const workshopTiles = this.game.roomTileCount(RoomType.Workshop);
+    const progress = Math.round(this.game.manufactureProgress() * 100);
+    const target = this.game.manufactureTarget;
+    const targetName = target
+      ? (target.kind === 'trap' ? TRAP_SPECS[target.type].name : DOOR_SPECS[target.type].name)
+      : null;
+
+    this.toolTitle.textContent = workshopTiles === 0
+      ? 'Workshop — build one first'
+      : targetName
+        ? `Workshop — ${targetName} ${progress}%`
+        : 'Workshop — pick something to build';
+
+    if (workshopTiles === 0) {
+      const empty = document.createElement('div');
+      // A grid cell is a button's width. Prose has to span the whole row or it
+      // wraps to one word per line.
+      empty.className = 'grid-note';
+      empty.textContent =
+        'You have no workshop. Build one from the Rooms tab and put creatures in it — '
+        + 'trolls and bile demons will work there.';
+      this.toolGrid.appendChild(empty);
+      return;
+    }
+
+    for (const trap of TRAP_BUTTON_ORDER) {
+      this.toolGrid.appendChild(this.deviceButton('trap', trap));
+    }
+    for (const door of DOOR_BUTTON_ORDER) {
+      this.toolGrid.appendChild(this.deviceButton('door', door));
+    }
+  }
+
+  private deviceButton(kind: 'trap' | 'door', type: number): HTMLElement {
+    const spec = kind === 'trap' ? TRAP_SPECS[type as TrapType] : DOOR_SPECS[type as DoorType];
+    const stock = kind === 'trap'
+      ? this.game.stockOfTrap(type as TrapType) : this.game.stockOfDoor(type as DoorType);
+    const target = this.game.manufactureTarget;
+    const isTarget = target !== null && target.kind === kind && target.type === type;
+
+    const button = document.createElement('div');
+    button.className = 'tool-button';
+    button.dataset[kind] = String(type);
+    button.innerHTML = `
+      ${kind === 'trap' ? trapIcon(type as TrapType) : doorIcon(type as DoorType)}
+      <span class="cost">${spec.cost}</span>
+      <span class="label">${spec.name}</span>
+      ${stock > 0 ? `<span class="count">${stock}</span>` : ''}
+      ${isTarget ? '<span class="building"></span>' : ''}`;
+    button.title = stock > 0
+      ? `${spec.name} — ${stock} in stock. Click to place one.`
+      : `${spec.name} — click to start building. ${spec.blurb}`;
+    button.classList.toggle('selected', isTarget && stock === 0);
+
+    button.addEventListener('click', () => {
+      if (stock > 0) {
+        this.selectTool(kind === 'trap'
+          ? { kind: 'trap', trap: type as TrapType }
+          : { kind: 'door', door: type as DoorType });
+      } else {
+        // Nothing built yet: put it on the workshop's bench.
+        this.game.setManufactureTarget(
+          kind === 'trap'
+            ? { kind: 'trap', type: type as TrapType }
+            : { kind: 'door', type: type as DoorType },
+        );
+        this.buildGrid();
+      }
+    });
+    button.addEventListener('pointerenter', () => {
+      this.infoTitle.textContent = spec.name;
+      this.infoBody.innerHTML = `
+        <p>${spec.blurb}</p>
+        <div class="stat"><span>In stock</span><b>${stock}</b></div>
+        <div class="stat"><span>Gold on completion</span><b>${spec.cost}</b></div>
+        <div class="stat"><span>Build effort</span><b>${spec.build}</b></div>`;
+    });
+    return button;
+  }
+
   private buildCreatureGrid(): void {
     const counts = this.game.playerCreatureCounts();
     if (counts.size === 0) {
       const empty = document.createElement('div');
-      empty.className = 'label';
-      empty.style.padding = '10px';
+      // A grid cell is a button's width. Prose has to span the whole row or it
+      // wraps to one word per line.
+      empty.className = 'grid-note';
       empty.textContent = 'No creatures yet. Build a lair and a hatchery, then wait at your portal.';
       this.toolGrid.appendChild(empty);
       return;
@@ -294,6 +395,10 @@ export class Hud {
         selected = Number(el.dataset.room) === this.selectedTool.room;
       } else if (this.selectedTool.kind === 'spell' && el.dataset.spell !== undefined) {
         selected = Number(el.dataset.spell) === this.selectedTool.spell;
+      } else if (this.selectedTool.kind === 'trap' && el.dataset.trap !== undefined) {
+        selected = Number(el.dataset.trap) === this.selectedTool.trap;
+      } else if (this.selectedTool.kind === 'door' && el.dataset.door !== undefined) {
+        selected = Number(el.dataset.door) === this.selectedTool.door;
       }
       el.classList.toggle('selected', selected);
     }
@@ -408,9 +513,9 @@ export class Hud {
     this.syncMessages();
   }
 
-  /** Rebuild the creature roster; only worth doing when the tab is open. */
+  /** Rebuild the roster or workshop tab; only worth doing when one is open. */
   refreshCreatureTab(): void {
-    if (this.activeTab === 'creatures') this.buildGrid();
+    if (this.activeTab === 'creatures' || this.activeTab === 'workshop') this.buildGrid();
   }
 
   private syncMessages(): void {
@@ -449,6 +554,11 @@ export class Hud {
       } else if (this.activeTab === 'spells') {
         const spell = SPELL_BUTTON_ORDER[n - 1];
         if (spell !== undefined) this.selectTool({ kind: 'spell', spell });
+      } else if (this.activeTab === 'workshop') {
+        const trap = TRAP_BUTTON_ORDER[n - 1];
+        if (trap !== undefined && this.game.stockOfTrap(trap) > 0) {
+          this.selectTool({ kind: 'trap', trap });
+        }
       }
       return;
     }
@@ -456,6 +566,7 @@ export class Hud {
       case 'KeyR': this.setTab('rooms'); break;
       case 'KeyF': this.setTab('spells'); break;
       case 'KeyC': this.setTab('creatures'); break;
+      case 'KeyT': this.setTab('workshop'); break;
       case 'Escape': this.selectTool({ kind: 'hand' }); break;
       default: break;
     }

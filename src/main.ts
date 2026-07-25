@@ -8,6 +8,7 @@ import { generateLevel } from './core/levelgen';
 import { CameraController } from './input/cameraController';
 import { HandOfEvil, Tool } from './input/hand';
 import { CreatureRenderer } from './render/creatureRenderer';
+import { DeviceRenderer } from './render/deviceRenderer';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
 import { RoomPropRenderer } from './render/roomProps';
@@ -40,12 +41,14 @@ const rig = new SceneRig(canvas, detectQuality());
 const terrain = new TerrainRenderer(game.map);
 const creatureRenderer = new CreatureRenderer();
 const roomProps = new RoomPropRenderer(game.map);
+const devices = new DeviceRenderer(game.map);
 const torches = new TorchSystem(game.map);
 const particles = new ParticleSystem();
 
 rig.scene.add(terrain.group);
 rig.scene.add(creatureRenderer.group);
 rig.scene.add(roomProps.group);
+rig.scene.add(devices.group);
 rig.scene.add(torches.group);
 rig.scene.add(particles.points);
 
@@ -188,6 +191,8 @@ function frame(): void {
   const cap = game.treasuryCap();
   roomProps.setGoldFill(cap > 0 ? game.goldOf(Owner.Player) / cap : 0);
   roomProps.update(time);
+  devices.syncIfDirty();
+  devices.update(time, game.gasTiles());
   torches.syncIfDirty();
   torches.update(time, camera.target);
   creatureRenderer.update(game.creatures, time, paused ? 0 : dt);
@@ -288,6 +293,7 @@ if (import.meta.hot) {
     hud.dispose();
     terrain.dispose();
     roomProps.dispose();
+    devices.dispose();
     creatureRenderer.dispose();
     torches.dispose();
     particles.dispose();

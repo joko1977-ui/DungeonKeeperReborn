@@ -106,6 +106,30 @@ function buildBookshelf(): THREE.BufferGeometry {
   return b.build();
 }
 
+/** An anvil on a stump, with a hammer and a rack of stock iron. */
+function buildWorkshopAnvil(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  // Stump. Colours run bright: this room is lit by torches, and a palette
+  // picked as if for daylight arrives as a black blob down here.
+  b.cylinder(0.16, 0.19, 0.26, -0.08, 0.13, 0.02, 0x94806a);
+  // Anvil: waisted body, flat face, horn on one end.
+  b.box(0.34, 0.07, 0.17, -0.08, 0.29, 0.02, 0xa9b2c2);
+  b.box(0.18, 0.09, 0.12, -0.08, 0.22, 0.02, 0x8e96a6);
+  b.cone(0.06, 0.16, 0.14, 0.30, 0.02, 0xb4bcc8, 0, 0, -Math.PI / 2);
+  // Hammer left leaning on the stump.
+  b.cylinder(0.016, 0.016, 0.30, 0.14, 0.16, -0.14, 0xbc9c70, 0.5, 0, 0.3);
+  b.box(0.09, 0.05, 0.05, 0.20, 0.30, -0.06, 0x9aa0aa);
+  // Iron bars stacked in a low rack. Kept short so a big workshop does not
+  // turn into a thicket of overlapping bars.
+  for (let i = 0; i < 3; i++) {
+    b.cylinder(0.022, 0.022, 0.28, 0.20 + i * 0.045, 0.05 + i * 0.02, 0.20,
+      i === 1 ? 0xcfd5e0 : 0xb2b8c4, 0, 0.35, Math.PI / 2);
+  }
+  // Sparks pit — a scorched patch so the tile reads as worked-in.
+  b.cylinder(0.13, 0.13, 0.012, -0.28, 0.006, -0.22, 0x574d44);
+  return b.build();
+}
+
 /** Rope railings for a bridge span. */
 function buildBridgeRail(): THREE.BufferGeometry {
   const b = new PartBuilder();
@@ -238,6 +262,7 @@ export class RoomPropRenderer {
       [RoomType.Hatchery, buildHatcheryNest()],
       [RoomType.TrainingRoom, buildTrainingDummy()],
       [RoomType.Library, buildBookshelf()],
+      [RoomType.Workshop, buildWorkshopAnvil()],
       [RoomType.Bridge, buildBridgeRail()],
     ];
     for (const [room, geo] of tiled) {

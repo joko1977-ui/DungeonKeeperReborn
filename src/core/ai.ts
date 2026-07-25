@@ -55,6 +55,8 @@ export interface AIWorld {
   isLairFree(tile: number): boolean;
 
   addResearch(owner: Owner, points: number): void;
+  /** Hit a door. Returns true when it breaks. */
+  damageDoor(x: number, y: number, amount: number): boolean;
   notify(message: string, cue?: string): void;
   /** Fire off a one-shot visual: 'dig' | 'claim' | 'hit' | 'gold' | 'sleep' | 'poof'. */
   effect(kind: string, x: number, y: number): void;
@@ -108,6 +110,11 @@ function setPathTo(world: AIWorld, c: Creature, tile: number): boolean {
 /**
  * Advance along the current path. Returns true when the destination is reached
  * (or there was never a path to begin with).
+ *
+ * Doors are left passable for the pathfinder on purpose. Making them solid
+ * would send intruders looking for another way round and they would simply
+ * never attack one; instead the route goes through, and a creature that
+ * reaches a door it does not own stops and breaks it down.
  */
 function advancePath(world: AIWorld, c: Creature, dt: number): boolean {
   const { map } = world;
@@ -117,6 +124,18 @@ function advancePath(world: AIWorld, c: Creature, dt: number): boolean {
   const tx = map.xOf(target), ty = map.yOf(target);
   const dx = tx - c.x, dy = ty - c.y;
   const d = Math.hypot(dx, dy);
+
+  // A hostile door in the way: stop here and start hitting it.
+  const door = map.doorAt(tx, ty);
+  if (door !== 0 && map.ownerAt(tx, ty) !== c.owner && c.owner !== Owner.None) {
+    c.facing = Math.atan2(dy, dx);
+    c.state = CreatureState.Fighting;
+    if (c.stateTimer % 10 === 0) {
+      const damage = Math.max(2, strengthOf(c));
+      if (world.damageDoor(tx, ty, damage)) c.state = CreatureState.Walking;
+    }
+    return false;
+  }
 
   // Bail out if the world changed under us and the next step is now solid.
   if (!passableFor(map, c)(tx, ty)) { c.path = null; return true; }
@@ -516,6 +535,14 @@ function creatureWorkAtTarget(world: AIWorld, c: Creature): boolean {
       c.hunger = Math.min(100, c.hunger + 0.14);
       return true;
     }
+
+    case RoomType.Workshop:
+      // The workshop's output is tallied centrally; the creature just works.
+      c.state = CreatureState.Manufacturing;
+      if (c.stateTimer % 18 === 0) world.effect('train', c.x, c.y);
+      c.tiredness = Math.min(100, c.tiredness + 0.14);
+      c.hunger = Math.min(100, c.hunger + 0.10);
+      return true;
 
     case RoomType.Library:
       c.state = CreatureState.Researching;

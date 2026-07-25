@@ -36,6 +36,17 @@ export class TileMap {
   readonly gold: Uint16Array;
   readonly flags: Uint8Array;
 
+  /* A tile carries at most one device, and it belongs to whoever owns the
+     tile — so no separate owner array is needed for either. */
+  /** TrapType, or 0. */
+  readonly trap: Uint8Array;
+  /** Firings left before a trap is spent. */
+  readonly trapCharges: Uint8Array;
+  /** DoorType, or 0. */
+  readonly door: Uint8Array;
+  /** Remaining door integrity. */
+  readonly doorHp: Float32Array;
+
   /** Bumped whenever anything the renderer cares about changes. */
   version = 0;
 
@@ -50,6 +61,10 @@ export class TileMap {
     this.roomId = new Uint16Array(n).fill(0xffff);
     this.gold = new Uint16Array(n);
     this.flags = new Uint8Array(n);
+    this.trap = new Uint8Array(n);
+    this.trapCharges = new Uint8Array(n);
+    this.door = new Uint8Array(n);
+    this.doorHp = new Float32Array(n);
     for (let i = 0; i < n; i++) this.health[i] = DIG_HEALTH[Terrain.Earth];
   }
 
@@ -69,6 +84,18 @@ export class TileMap {
   ownerAt(x: number, y: number): Owner {
     if (!this.inBounds(x, y)) return Owner.None;
     return this.owner[this.idx(x, y)] as Owner;
+  }
+
+  /** Door type on a tile, or 0. */
+  doorAt(x: number, y: number): number {
+    if (!this.inBounds(x, y)) return 0;
+    return this.door[this.idx(x, y)];
+  }
+
+  /** Trap type on a tile, or 0. */
+  trapAt(x: number, y: number): number {
+    if (!this.inBounds(x, y)) return 0;
+    return this.trap[this.idx(x, y)];
   }
 
   roomAt(x: number, y: number): RoomType {
@@ -95,6 +122,11 @@ export class TileMap {
     this.health[i] = isSolid(t) ? (DIG_HEALTH[t] ?? 0) : 0;
     if (!isSolid(t)) this.flags[i] &= ~FLAG_MARKED;
     if (t !== Terrain.Gold && t !== Terrain.Gems) this.gold[i] = 0;
+    // A device cannot survive the floor under it being dug out or reclaimed.
+    this.trap[i] = 0;
+    this.trapCharges[i] = 0;
+    this.door[i] = 0;
+    this.doorHp[i] = 0;
     this.version++;
   }
 
