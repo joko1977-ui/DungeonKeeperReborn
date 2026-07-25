@@ -12,17 +12,41 @@ export interface QualitySettings {
   maxPixelRatio: number;
 }
 
-/** Pick sensible defaults from what the device tells us about itself. */
+/**
+ * Pick sensible defaults from what the device tells us about itself.
+ *
+ * A touch screen alone is a poor signal: a current iPad will out-render plenty
+ * of laptops, and treating it as a phone throws away the lighting for nothing.
+ * Core count plus physical screen size separates the two reasonably well, and
+ * anything the guess gets wrong is caught by the adaptive step-down below.
+ */
 export function detectQuality(): QualitySettings {
   const dpr = window.devicePixelRatio || 1;
-  const cores = navigator.hardwareConcurrency ?? 4;
   const coarse = window.matchMedia('(pointer: coarse)').matches;
-  // Phones and tablets get the cheaper rig; they're also the ones with the
-  // highest pixel ratios, so capping resolution matters more than effects.
-  const lowPower = coarse || cores <= 4;
+  const shortEdge = Math.min(window.screen.width, window.screen.height);
+
+  // `?quality=high` / `?quality=low` forces the issue, which is the only
+  // reliable way to check what a specific device can really do.
+  const forced = new URLSearchParams(location.search).get('quality');
+  if (forced === 'high' || forced === 'low') {
+    const high = forced === 'high';
+    return { bloom: high, shadows: high, maxPixelRatio: high ? Math.min(dpr, 2) : 1 };
+  }
+
+  // Deliberately *not* `?? 4`: a browser that doesn't report core count would
+  // then be treated as weak and never get the lighting, and the adaptive
+  // step-down below only ever goes one way. Unknown is assumed capable, and
+  // measured frame rate corrects it within seconds if that was wrong.
+  const cores = navigator.hardwareConcurrency;
+  const fewCores = cores !== undefined && cores <= 4;
+  const phoneSized = coarse && shortEdge < 500;
+  const lowPower = fewCores || phoneSized;
+
   return {
     bloom: !lowPower,
     shadows: !lowPower,
+    // Tablets and phones run at 2x or 3x; rendering every one of those pixels
+    // is where the frame budget actually goes.
     maxPixelRatio: lowPower ? Math.min(dpr, 1.5) : Math.min(dpr, 2),
   };
 }
@@ -150,6 +174,49 @@ export class SceneRig {
 
   getQuality(): QualitySettings {
     return this.quality;
+  }
+
+  /** How many times quality has already been stepped down. */
+  private downgrades = 0;
+  private lastDowngradeAt = 0;
+  /** Seconds to wait after a step-down before judging the result. */
+  private static readonly DOWNGRADE_COOLDOWN = 6;
+
+  /**
+   * Adaptive fallback: if the device cannot hold a playable frame rate, shed
+   * the expensive things in order of cost. Guessing hardware from feature
+   * detection is unreliable, so this measures instead — and it only ever steps
+   * down, so it cannot oscillate.
+   *
+   * Returns a short description when something changed, for the message log.
+   */
+  considerPerformance(fps: number): string | null {
+    if (this.downgrades >= 3 || fps <= 0 || fps > 38) return null;
+
+    // Give each change time to actually take effect. Without this the check
+    // fires again on the next sample and burns through every downgrade in
+    // about a second, which is both wrong and visibly noisy in the log.
+    const now = performance.now() / 1000;
+    if (now - this.lastDowngradeAt < SceneRig.DOWNGRADE_COOLDOWN) return null;
+    this.lastDowngradeAt = now;
+
+    this.downgrades++;
+    const next = { ...this.quality };
+    let what: string;
+
+    if (next.bloom) {
+      next.bloom = false;
+      what = 'bloom';
+    } else if (next.shadows) {
+      next.shadows = false;
+      what = 'shadows';
+    } else {
+      next.maxPixelRatio = Math.max(1, next.maxPixelRatio * 0.75);
+      what = 'resolution';
+    }
+
+    this.setQuality(next);
+    return `Frame rate was low, so ${what} has been turned down.`;
   }
 
   dispose(): void {

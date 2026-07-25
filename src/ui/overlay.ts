@@ -43,7 +43,8 @@ export function showBriefing(
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>
         <dt>R / F / C</dt><dd>Rooms, spells and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
         <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
-        <dt>Touch</dt><dd>Drag to pan, pinch to zoom, twist to rotate</dd>
+        <dt>One finger</dt><dd>Tap or drag to tag walls · tap a creature to pick it up · hold to slap</dd>
+        <dt>Two fingers</dt><dd>Drag to move · pinch to zoom · twist to rotate</dd>
         <dt>Sound</dt><dd>Toggle the mix and the narrator from the top right</dd>
       </dl>
       <p style="font-size:12px;opacity:0.6;margin-top:-4px">

@@ -2,8 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#0a0705" />
+    <!-- iOS ignores the manifest's display mode; these are what make
+         "Add to Home Screen" launch without Safari's chrome. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DK Reborn" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta name="description" content="Carve a dungeon, lure creatures, repel the heroes. A clean-room reimagining of the 1997 dungeon-management classic." />
     <meta name="color-scheme" content="dark" />
     <title>Dungeon Keeper Reborn</title>

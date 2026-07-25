@@ -211,9 +211,17 @@ function frame(): void {
   frameCount++;
   fpsAccumulator += dt;
   if (fpsAccumulator >= 0.5) {
-    fpsChip.textContent = String(Math.round(frameCount / fpsAccumulator));
+    const fps = Math.round(frameCount / fpsAccumulator);
+    fpsChip.textContent = String(fps);
     frameCount = 0;
     fpsAccumulator = 0;
+
+    // Give the device a few seconds to settle before judging it, then shed
+    // effects if it still cannot keep up.
+    if (clock.elapsedTime > 6) {
+      const change = rig.considerPerformance(fps);
+      if (change) game.notify(change);
+    }
   }
 
   if (game.status !== 'playing' && !outcomeShown) {

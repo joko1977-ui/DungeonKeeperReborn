@@ -34,6 +34,13 @@ export interface HandEvents {
  *
  * Rooms and spells temporarily take over the left button, and hand back to the
  * default behaviour once used.
+ *
+ * On a touch screen there are no buttons to press, so the same three verbs are
+ * mapped onto one finger: a tap is the left button, a drag paints exactly as a
+ * held left button does, and a press-and-hold is the right button — the slap.
+ * The moment a second finger lands the gesture is handed to the camera and
+ * anything in progress here is abandoned, so a two-finger pan never leaves a
+ * trail of tagged walls behind it.
  */
 export class HandOfEvil {
   readonly group = new THREE.Group();
@@ -70,6 +77,24 @@ export class HandOfEvil {
 
   /** Set while dropping is illegal, so the cursor can show it. */
   dropBlocked = false;
+
+  /* Touch state. One finger acts; two or more belong to the camera. */
+  private readonly activeTouches = new Set<number>();
+  /** The finger currently driving an action, or -1. */
+  private touchId = -1;
+  private touchStartX = 0;
+  private touchStartY = 0;
+  private touchMoved = false;
+  /** Set once a long press has fired, so releasing does not also act. */
+  private touchHandled = false;
+  /** A tap on a creature picks it up on release, not on contact. */
+  private pendingPickup: Creature | null = null;
+  private longPressTimer = 0;
+
+  /** Pixels of movement before a tap becomes a drag. */
+  private static readonly TAP_SLOP = 12;
+  /** Milliseconds of stillness before a press becomes a slap. */
+  private static readonly LONG_PRESS_MS = 450;
 
   constructor(
     game: Game,
@@ -117,6 +142,7 @@ export class HandOfEvil {
     element.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
     window.addEventListener('keydown', this.onKeyDown);
   }
 
@@ -162,6 +188,7 @@ export class HandOfEvil {
   /* ------------------------------------------------------------- events - */
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') { this.onTouchDown(e); return; }
     if (e.button === 1) return; // middle button belongs to the camera
     this.updatePointer(e);
     this.pick();
@@ -176,6 +203,7 @@ export class HandOfEvil {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') { this.onTouchMove(e); return; }
     this.updatePointer(e);
     const previousCreature = this.hoverCreature;
     this.pick();
@@ -195,6 +223,7 @@ export class HandOfEvil {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') { this.onTouchUp(e); return; }
     if (!this.dragging || e.button === 1) return;
     this.updatePointer(e);
     this.pick();
@@ -209,6 +238,110 @@ export class HandOfEvil {
     // Escape drops whatever tool is selected, back to the bare hand.
     if (e.code === 'Escape') this.tool = { kind: 'hand' };
   };
+
+  /* -------------------------------------------------------------- touch - */
+
+  private onTouchDown(e: PointerEvent): void {
+    this.activeTouches.add(e.pointerId);
+
+    // A second finger means the player wants the camera. Abandon whatever this
+    // one had started — including any tags already painted this gesture.
+    if (this.activeTouches.size > 1) {
+      this.cancelTouchGesture();
+      return;
+    }
+
+    this.touchId = e.pointerId;
+    this.touchStartX = e.clientX;
+    this.touchStartY = e.clientY;
+    this.touchMoved = false;
+    this.touchHandled = false;
+    this.pendingPickup = null;
+
+    this.updatePointer(e);
+    this.pick();
+    this.events.onHoverCreature?.(this.hoverCreature);
+
+    this.dragging = true;
+    this.dragButton = 0;
+    this.dragMoved = false;
+    this.dragStartTile = this.hoverTile;
+
+    // Holding something: the tap puts it down, immediately.
+    if (this.game.handCreature) { this.onLeftDown(); return; }
+
+    // On a creature, wait: a quick tap grabs it, a long press slaps it.
+    if (this.hoverCreature && this.tool.kind === 'hand') {
+      this.pendingPickup = this.hoverCreature;
+      const victim = this.hoverCreature;
+      this.longPressTimer = window.setTimeout(() => {
+        this.touchHandled = true;
+        this.pendingPickup = null;
+        this.game.slap(victim);
+      }, HandOfEvil.LONG_PRESS_MS);
+      return;
+    }
+
+    // Everything else acts on contact, so painting tags feels immediate.
+    this.onLeftDown();
+  }
+
+  private onTouchMove(e: PointerEvent): void {
+    if (e.pointerId !== this.touchId || !this.dragging) return;
+
+    if (!this.touchMoved) {
+      const moved = Math.hypot(e.clientX - this.touchStartX, e.clientY - this.touchStartY);
+      if (moved < HandOfEvil.TAP_SLOP) return;
+      this.touchMoved = true;
+      // Once it is a drag it is no longer a press, and no longer a tap-to-grab.
+      window.clearTimeout(this.longPressTimer);
+      this.pendingPickup = null;
+    }
+
+    this.updatePointer(e);
+    this.pick();
+    this.dragMoved = true;
+
+    if (this.tool.kind === 'hand') this.paintTag(this.dragTagValue);
+    else this.updateRectPreview();
+  }
+
+  private onTouchUp(e: PointerEvent): void {
+    this.activeTouches.delete(e.pointerId);
+    if (e.pointerId !== this.touchId) return;
+
+    window.clearTimeout(this.longPressTimer);
+    this.touchId = -1;
+
+    if (this.dragging && !this.touchHandled) {
+      // A tap on one of your creatures snatches it up.
+      if (this.pendingPickup && !this.touchMoved) {
+        this.game.pickUpCreature(this.pendingPickup);
+      } else {
+        this.onLeftUp();
+      }
+    }
+
+    this.pendingPickup = null;
+    this.dragging = false;
+    this.dragButton = -1;
+    this.rectMesh.visible = false;
+    // Without a cursor there is no hover, so clear the highlight on release.
+    this.hoverCreature = null;
+    this.events.onHoverCreature?.(null);
+  }
+
+  /** Give up on the current finger — the camera has taken over. */
+  private cancelTouchGesture(): void {
+    window.clearTimeout(this.longPressTimer);
+    this.touchId = -1;
+    this.pendingPickup = null;
+    this.dragging = false;
+    this.dragButton = -1;
+    this.touchHandled = true;
+    this.rectMesh.visible = false;
+    this.hoverMesh.visible = false;
+  }
 
   /* -------------------------------------------------------- left button - */
 
@@ -418,6 +551,7 @@ export class HandOfEvil {
     this.element.removeEventListener('pointerdown', this.onPointerDown);
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
     window.removeEventListener('keydown', this.onKeyDown);
     this.hoverMesh.geometry.dispose();
     this.rectMesh.geometry.dispose();

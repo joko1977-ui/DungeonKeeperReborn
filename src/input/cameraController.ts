@@ -9,7 +9,13 @@ import * as THREE from 'three';
  * than a jolt.
  *
  * Left and right mouse buttons are deliberately untouched — those belong to the
- * Hand of Evil. Rotation lives on the middle button (or two fingers).
+ * Hand of Evil. Rotation lives on the middle button.
+ *
+ * Touch splits the same way: **one finger belongs to the Hand of Evil, two
+ * fingers drive the camera.** Tagging a slab of wall is a drag, and it is the
+ * thing you do most, so it gets the single finger; panning, pinching and
+ * twisting all live on the two-finger gesture, which is where a pinch already
+ * had to be anyway.
  */
 export class CameraController {
   /** Point on the floor the camera looks at. */
@@ -38,6 +44,7 @@ export class CameraController {
   private readonly touches = new Map<number, { x: number; y: number }>();
   private pinchDistance = 0;
   private pinchAngle = 0;
+  private pinchCentre = { x: 0, y: 0 };
 
   static readonly MIN_DISTANCE = 6;
   static readonly MAX_DISTANCE = 46;
@@ -95,7 +102,7 @@ export class CameraController {
   private onPointerDown = (e: PointerEvent): void => {
     if (e.pointerType === 'touch') {
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (this.touches.size === 2) this.beginPinch();
+      if (this.touches.size >= 2) this.beginPinch();
       return;
     }
     // Middle button rotates; the other two are the Hand of Evil's.
@@ -108,18 +115,16 @@ export class CameraController {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    this.pointerScreen = { x: e.clientX, y: e.clientY };
+    // Edge scrolling follows the mouse only — a fingertip near the screen edge
+    // is just where someone is holding the tablet.
+    if (e.pointerType !== 'touch') this.pointerScreen = { x: e.clientX, y: e.clientY };
 
     if (e.pointerType === 'touch') {
       const prev = this.touches.get(e.pointerId);
       if (!prev) return;
       this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (this.touches.size === 1) {
-        // One finger drags the dungeon under your thumb.
-        this.dragTarget(e.clientX - prev.x, e.clientY - prev.y);
-      } else if (this.touches.size === 2) {
-        this.updatePinch();
-      }
+      // A single finger is the Hand of Evil's; the camera ignores it.
+      if (this.touches.size >= 2) this.updatePinch();
       return;
     }
 
@@ -139,6 +144,7 @@ export class CameraController {
     if (e.pointerType === 'touch') {
       this.touches.delete(e.pointerId);
       if (this.touches.size < 2) this.pinchDistance = 0;
+      else this.beginPinch();
       return;
     }
     if (e.button === 1) this.rotating = false;
@@ -164,12 +170,22 @@ export class CameraController {
     const [a, b] = [...this.touches.values()];
     this.pinchDistance = Math.hypot(b.x - a.x, b.y - a.y);
     this.pinchAngle = Math.atan2(b.y - a.y, b.x - a.x);
+    this.pinchCentre = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
 
   private updatePinch(): void {
     const [a, b] = [...this.touches.values()];
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const angle = Math.atan2(b.y - a.y, b.x - a.x);
+    const centre = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+
+    // Moving both fingers together pans — the two-finger gesture carries
+    // position, scale and rotation at once, the way a map does.
+    if (this.pinchDistance > 0) {
+      this.dragTarget(centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y);
+    }
+    this.pinchCentre = centre;
+
     if (this.pinchDistance > 0 && d > 0) {
       this.desiredDistance = THREE.MathUtils.clamp(
         this.desiredDistance * (this.pinchDistance / d),

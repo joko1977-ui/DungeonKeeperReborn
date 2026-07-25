@@ -62,8 +62,29 @@ reproduced exactly.
 | **WASD** / arrows / screen edge | Move the view. |
 | **R** / **F** / **C** | Rooms, Spells and Creatures tabs. **1–9** picks from the open tab. |
 | **Space** | Pause. **Esc** puts down the selected tool. |
-| **Touch** | Drag to pan, pinch to zoom, twist to rotate. |
 | **Top right** | Toggle the sound mix and the narrator. |
+
+### On a tablet or phone
+
+One finger is the Hand of Evil, two fingers are the camera. Tagging a slab of
+wall is a drag and it is the thing you do most, so it gets the single finger;
+the camera lives on the two-finger gesture, which had to carry a pinch anyway.
+
+| Gesture | Action |
+| --- | --- |
+| **Tap** | Tag a wall (tap again to untag) · pick up one of your creatures · drop what you are holding |
+| **One-finger drag** | Paint tags across a slab, exactly as holding the left button does |
+| **Press and hold** | Slap the creature under your finger |
+| **Two-finger drag** | Move the view |
+| **Pinch / twist** | Zoom and rotate |
+
+The moment a second finger lands, anything the first one had started is
+abandoned — a two-finger pan never leaves a trail of tagged walls behind it.
+
+Add it to your home screen for a full-screen, offline-capable app. Rendering
+quality is chosen from the device and steps down on its own if the frame rate
+cannot keep up; `?quality=high` or `?quality=low` overrides that if you want to
+see what the hardware will really do.
 
 ## How the game works
 

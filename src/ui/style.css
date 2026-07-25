@@ -31,7 +31,13 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* 100dvh tracks Safari's collapsing toolbars; height:100% alone leaves the
+     panel under the browser chrome on iPad. */
+  min-height: 100dvh;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
   background: #05040a;
   color: var(--text);
   font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, 'Georgia', serif;
@@ -46,6 +52,14 @@ html, body {
   display: block;
   width: 100%;
   height: 100%;
+  /*
+   * Without this, iOS hands single-finger drags and pinches to the page
+   * (scroll and zoom) instead of to the game, and the whole touch scheme
+   * silently does nothing. It has to be `none`, not `manipulation`: the game
+   * uses two-finger pinch itself.
+   */
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 /* ------------------------------------------------------------- cursors -- */
@@ -67,10 +81,10 @@ html, body {
 #hud {
   position: fixed;
   inset: auto 0 0 0;
-  height: var(--panel-h);
+  height: calc(var(--panel-h) + env(safe-area-inset-bottom));
   display: flex;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   z-index: 10;
   /* Carved stone: a lit top edge, deep shadow beneath. */
   background:
@@ -346,8 +360,8 @@ html, body {
 
 #messages {
   position: fixed;
-  left: 14px;
-  bottom: calc(var(--panel-h) + 12px);
+  left: calc(14px + env(safe-area-inset-left));
+  bottom: calc(var(--panel-h) + env(safe-area-inset-bottom) + 12px);
   width: min(440px, 46vw);
   display: flex;
   flex-direction: column-reverse;
@@ -383,8 +397,9 @@ html, body {
   right: 0;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 7px 14px;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: calc(7px + env(safe-area-inset-top)) 14px 7px;
   z-index: 9;
   background: linear-gradient(180deg, rgba(10, 8, 6, 0.9), rgba(10, 8, 6, 0));
   pointer-events: none;
@@ -531,4 +546,17 @@ html, body {
 /* Fine-pointer users get the custom cursors; touch users don't need them. */
 @media (pointer: coarse) {
   .cursor-hand, .cursor-grab, .cursor-holding { cursor: default; }
+
+  /* Apple's 44pt minimum. A 26px icon button is fine with a mouse and
+     genuinely hard to hit with a thumb. */
+  .icon-button { padding: 9px 14px; font-size: 13px; }
+  .tab { width: 56px; height: 48px; }
+  .tool-button { min-height: 68px; }
+  #minimap-frame { cursor: default; }
+}
+
+/* iPad landscape: plenty of width, but the panel must not eat the view. */
+@media (pointer: coarse) and (min-width: 900px) {
+  :root { --panel-h: 176px; }
+  #info-block { display: flex; width: 220px; }
 }
