@@ -52,7 +52,13 @@ jobs:
         with:
           name: web
           path: dist
+      # `enablement` turns Pages on via the API if it isn't already, so there
+      # is no manual settings step. If the token isn't permitted to do that,
+      # this fails loudly and Pages can still be enabled by hand under
+      # Settings -> Pages -> Source: GitHub Actions.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
