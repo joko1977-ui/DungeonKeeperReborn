@@ -88,12 +88,17 @@ export const OWNER_COLORS: Record<Owner, number> = {
 /**
  * How much punishment a Dungeon Heart takes before it stops.
  *
- * Sized so that breaking one is a deliberate assault rather than a stray
- * creature wandering in: a handful of mid-level monsters need something like
- * half a minute of uninterrupted work, which is long enough for the defender to
- * notice and answer.
+ * Sized so that breaking one is a siege rather than a mugging. The first figure
+ * here was a quarter of this, and it meant three raiders left alone finished a
+ * heart in under a minute — long before a player could cross the map, let alone
+ * do anything about it. Losing a level should be the result of losing a war, not
+ * of looking away.
+ *
+ * It also sets the length of the endgame: this is what you have to chew through
+ * to win, and a rival's heart falling in thirty seconds made the climax of a
+ * level an anticlimax.
  */
-export const HEART_HP = 5200;
+export const HEART_HP = 18000;
 
 export enum RoomType {
   None = 0,

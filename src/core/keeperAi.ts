@@ -67,6 +67,20 @@ const BUILD_ORDER: readonly RoomType[] = [
 /** Monsters a keeper keeps at home before it will send anyone out to raid. */
 const GARRISON = 3;
 
+/**
+ * How long a keeper leaves the player alone at the start.
+ *
+ * A rival with a portal, a lair and a hatchery has an army within a couple of
+ * minutes, and a player who has not built any defence yet simply loses their
+ * imps and then everything else. The original's rivals escalated; they did not
+ * open with a full assault. This is that grace, and it is also what stops the
+ * first ten minutes being spent rebuilding rather than digging.
+ */
+const RAID_GRACE_SECONDS = 540;
+
+/** Most creatures sent in one raid, however many it has spare. */
+const MAX_RAID_PARTY = 3;
+
 /** What the keeper AI needs from the game. */
 export interface KeeperAiWorld {
   readonly map: TileMap;
@@ -212,6 +226,8 @@ export class KeeperBrain {
    */
   private maybeRaid(world: KeeperAiWorld, heart: number): void {
     const { map } = world;
+    if (world.tickCount < TICKS_PER_SECOND * RAID_GRACE_SECONDS) return;
+
     const mine = world.creatures.filter(
       (c) => c.owner === this.owner && !CREATURE_SPECS[c.type].worker
         && c.state !== CreatureState.Dying && !c.inHand,
@@ -227,9 +243,10 @@ export class KeeperBrain {
     }
 
     const tx = map.xOf(target), ty = map.yOf(target);
+    const party = Math.min(MAX_RAID_PARTY, mine.length - GARRISON);
     let sent = 0;
     for (const c of mine) {
-      if (sent >= mine.length - GARRISON) break;
+      if (sent >= party) break;
       // Leave whoever is already busy fighting or on the road.
       if (c.state === CreatureState.Fighting) continue;
       if (c.path && c.path.length > 0) continue;

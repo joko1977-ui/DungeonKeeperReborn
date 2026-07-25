@@ -147,6 +147,12 @@ export class Minimap {
       ctx.fillRect(x, y, size, size);
     }
 
+    // Landmarks. A minimap of coloured pixels tells you where your territory is
+    // and nothing about what is on it — you cannot find your own training room
+    // on it, let alone the rival's heart. These are the four things worth
+    // finding, marked so they read at this size.
+    this.drawLandmarks();
+
     // The camera's footprint: a wedge showing where you're looking.
     ctx.save();
     ctx.translate(focusX, focusY);
@@ -162,6 +168,53 @@ export class Minimap {
     ctx.lineWidth = 0.7;
     ctx.stroke();
     ctx.restore();
+  }
+
+  /**
+   * Mark hearts and portals.
+   *
+   * Deliberately only these: marking every room turns the minimap into a
+   * pincushion at 72 pixels across, and the rooms you hunt for are the ones that
+   * decide the level.
+   */
+  private drawLandmarks(): void {
+    const map = this.game.map;
+    const ctx = this.ctx;
+    const seen = new Set<string>();
+
+    for (let i = 0; i < map.room.length; i++) {
+      const room = map.room[i] as RoomType;
+      if (room !== RoomType.DungeonHeart && room !== RoomType.Portal) continue;
+      if ((map.flags[i] & FLAG_REVEALED) === 0) continue;
+      const owner = map.owner[i] as Owner;
+      // One mark per room, not per tile: a 3x3 heart is one landmark.
+      const key = `${room}:${owner}:${Math.round(map.xOf(i) / 4)}:${Math.round(map.yOf(i) / 4)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const x = map.xOf(i), y = map.yOf(i);
+      const colour = OWNER_COLORS[owner];
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.strokeStyle = `#${lighten(colour, 0.55).toString(16).padStart(6, '0')}`;
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      if (room === RoomType.DungeonHeart) {
+        // A diamond for a heart — the thing you must protect or destroy.
+        ctx.moveTo(0, -3);
+        ctx.lineTo(3, 0);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-3, 0);
+        ctx.closePath();
+        ctx.fillStyle = `rgba(255, 255, 255, 0.28)`;
+        ctx.fill();
+      } else {
+        // A ring for a portal, hero gate included.
+        ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   dispose(): void {

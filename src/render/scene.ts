@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 
 /**
  * Final colour grade.
@@ -64,8 +65,72 @@ export interface QualitySettings {
   /** Bloom makes torches and lava read as light rather than paint. */
   bloom: boolean;
   shadows: boolean;
+  /** Edge anti-aliasing. Cheap, and the single biggest tidiness win. */
+  smaa: boolean;
   /** Upper bound on device pixel ratio. */
   maxPixelRatio: number;
+}
+
+/**
+ * A little environment to reflect.
+ *
+ * Metal without an environment map is not metal — it is a flat grey surface
+ * with a highlight, which is why the gold heaps and iron doors read as painted
+ * cardboard however carefully their roughness is set. There is no sky down here
+ * to sample, so this bakes a plausible one: a warm floor bounce from all the
+ * torchlight and lava, cool near-black overhead, and a hot band at the horizon
+ * where the fires are. Rendered once into a PMREM and never touched again.
+ */
+function buildDungeonEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const scene = new THREE.Scene();
+
+  // A large inward-facing sphere carrying the gradient, as vertex colours so no
+  // shader or texture is needed.
+  const geo = new THREE.SphereGeometry(10, 24, 16);
+  const count = geo.attributes.position.count;
+  const colors = new Float32Array(count * 3);
+  const pos = geo.attributes.position;
+  const up = new THREE.Color(0x101830).convertSRGBToLinear();
+  const horizon = new THREE.Color(0xa85a1e).convertSRGBToLinear();
+  const down = new THREE.Color(0x5e3014).convertSRGBToLinear();
+  const c = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    const y = pos.getY(i) / 10;
+    if (y >= 0) {
+      // Above the horizon: fade quickly to a cold ceiling.
+      c.copy(horizon).lerp(up, Math.min(1, Math.pow(y, 0.55)));
+    } else {
+      // Below: the floor bounce, warm and dimmer than the fires themselves.
+      c.copy(horizon).lerp(down, Math.min(1, Math.pow(-y, 0.7)));
+    }
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+  })));
+
+  // Three bright patches standing in for nearby torches, so a curved metal
+  // surface gets moving highlights instead of one flat wash.
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const flame = new THREE.Mesh(
+      new THREE.SphereGeometry(1.5, 10, 8),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a3a).convertSRGBToLinear() }),
+    );
+    flame.position.set(Math.cos(a) * 7, -0.6, Math.sin(a) * 7);
+    scene.add(flame);
+  }
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const target = pmrem.fromScene(scene, 0.04);
+  pmrem.dispose();
+  geo.dispose();
+  return target.texture;
 }
 
 /**
@@ -86,7 +151,10 @@ export function detectQuality(): QualitySettings {
   const forced = new URLSearchParams(location.search).get('quality');
   if (forced === 'high' || forced === 'low') {
     const high = forced === 'high';
-    return { bloom: high, shadows: high, maxPixelRatio: high ? Math.min(dpr, 2) : 1 };
+    return {
+      bloom: high, shadows: high, smaa: high,
+      maxPixelRatio: high ? Math.min(dpr, 2) : 1,
+    };
   }
 
   // Deliberately *not* `?? 4`: a browser that doesn't report core count would
@@ -101,6 +169,10 @@ export function detectQuality(): QualitySettings {
   return {
     bloom: !lowPower,
     shadows: !lowPower,
+    // Worth it even on weak hardware: one full-screen pass buys more apparent
+    // quality than anything else here, and the alternative is jagged edges on
+    // every wall in the dungeon.
+    smaa: true,
     // Tablets and phones run at 2x or 3x; rendering every one of those pixels
     // is where the frame budget actually goes.
     maxPixelRatio: lowPower ? Math.min(dpr, 1.5) : Math.min(dpr, 2),
@@ -122,7 +194,10 @@ export class SceneRig {
   readonly composer: EffectComposer;
 
   readonly sun: THREE.DirectionalLight;
+  /** The baked dungeon reflection, applied to every standard material. */
+  readonly environment: THREE.Texture;
   private readonly bloomPass: UnrealBloomPass | null;
+  private readonly smaaPass: SMAAPass;
   private readonly gradePass: ShaderPass;
   private quality: QualitySettings;
 
@@ -131,7 +206,10 @@ export class SceneRig {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !quality.bloom, // bloom pass does its own resolve; MSAA is wasted
+      // MSAA never applied here: the composer renders to its own target, so the
+      // canvas's own multisampling does nothing at all. Edges are handled by an
+      // SMAA pass at the end of the chain instead, which does work.
+      antialias: false,
       powerPreference: 'high-performance',
       stencil: false,
     });
@@ -142,6 +220,16 @@ export class SceneRig {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Everything metal in the dungeon reflects this: gold heaps, iron doors,
+    // anvils, and the armour a veteran creature earns. Set on the scene so it
+    // applies to every standard material without touching each one.
+    this.environment = buildDungeonEnvironment(this.renderer);
+    this.scene.environment = this.environment;
+    // Carries most of the light on creatures, which are the thing you actually
+    // look at. Terrain materials pull their own intensity down so the walls do
+    // not wash out with it.
+    this.scene.environmentIntensity = 1.15;
 
     this.scene.background = new THREE.Color(0x06060e);
     // Exponential fog swallows the far side of the map — you only ever see
@@ -162,7 +250,7 @@ export class SceneRig {
     const ambient = new THREE.AmbientLight(0x2a3558, 1.30);
     this.scene.add(ambient);
 
-    const hemi = new THREE.HemisphereLight(0x3a5686, 0x3d2415, 1.15);
+    const hemi = new THREE.HemisphereLight(0x3a5686, 0x4a2c18, 1.45);
     this.scene.add(hemi);
 
     // A cold key from high above: enough to read silhouettes and cast shadows,
@@ -207,6 +295,12 @@ export class SceneRig {
     this.gradePass = new ShaderPass(GRADE_SHADER);
     this.composer.addPass(this.gradePass);
 
+    // Anti-aliasing last, on the graded image, so it smooths what is actually
+    // on screen rather than something the grade then re-sharpens.
+    this.smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
+    this.smaaPass.enabled = quality.smaa;
+    this.composer.addPass(this.smaaPass);
+
     window.addEventListener('resize', this.onResize);
   }
 
@@ -219,6 +313,7 @@ export class SceneRig {
     this.composer.setSize(w, h);
     this.bloomPass?.setSize(w, h);
     this.gradePass.setSize(w, h);
+    this.smaaPass.setSize(w, h);
   };
 
   /** Keep the shadow frustum tracking whatever the camera is looking at. */
@@ -237,6 +332,7 @@ export class SceneRig {
     this.renderer.shadowMap.enabled = quality.shadows;
     this.sun.castShadow = quality.shadows;
     if (this.bloomPass) this.bloomPass.enabled = quality.bloom;
+    this.smaaPass.enabled = quality.smaa;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
   }
 
@@ -259,7 +355,7 @@ export class SceneRig {
    * Returns a short description when something changed, for the message log.
    */
   considerPerformance(fps: number): string | null {
-    if (this.downgrades >= 3 || fps <= 0 || fps > 38) return null;
+    if (this.downgrades >= 4 || fps <= 0 || fps > 38) return null;
 
     // Give each change time to actually take effect. Without this the check
     // fires again on the next sample and burns through every downgrade in
@@ -275,6 +371,9 @@ export class SceneRig {
     if (next.bloom) {
       next.bloom = false;
       what = 'bloom';
+    } else if (next.smaa) {
+      next.smaa = false;
+      what = 'edge smoothing';
     } else if (next.shadows) {
       next.shadows = false;
       what = 'shadows';
@@ -290,6 +389,7 @@ export class SceneRig {
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
     this.composer.dispose();
+    this.environment.dispose();
     this.renderer.dispose();
   }
 }

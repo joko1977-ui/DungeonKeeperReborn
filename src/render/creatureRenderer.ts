@@ -8,6 +8,9 @@ import {
   maxHpOf,
 } from '../core/creatures';
 import { getCreatureModel, limbCountFor } from './creatureModels';
+import {
+  Rank, WORN_RANKS, auraStrength, buildRankRegalia, eyeGlowFor, rankOf, rankScale, rigFor,
+} from './creatureRank';
 import { makeGlowTexture } from './textures';
 
 /**
@@ -27,6 +30,14 @@ interface TypeBatch {
   eyes: THREE.InstancedMesh;
   ring: THREE.InstancedMesh;
   shadow: THREE.InstancedMesh;
+  /**
+   * Rank kit, one mesh per worn rank. A creature is drawn into whichever one
+   * matches its rank, so the armour a veteran wears is real geometry rather
+   * than a tint, and it costs one draw call per rank per species.
+   */
+  regalia: Map<Rank, THREE.InstancedMesh>;
+  /** Champions only: a slow ring of light at the feet. */
+  aura: THREE.InstancedMesh;
   limbsPer: number;
   flapping: boolean;
   limbOffset: THREE.Vector3;
@@ -38,12 +49,16 @@ export class CreatureRenderer {
 
   private readonly batches = new Map<CreatureType, TypeBatch>();
   private readonly bodyMaterial: THREE.MeshStandardMaterial;
+  private readonly regaliaMaterial: THREE.MeshStandardMaterial;
   private readonly eyeMaterial: THREE.MeshBasicMaterial;
   private readonly ringMaterial: THREE.MeshBasicMaterial;
   private readonly shadowMaterial: THREE.MeshBasicMaterial;
+  private readonly auraMaterial: THREE.MeshBasicMaterial;
 
   private readonly dummy = new THREE.Object3D();
   private readonly limbDummy = new THREE.Object3D();
+  /** Scratch for copying a body matrix onto its rank kit. */
+  private readonly matrix = new THREE.Matrix4();
   private readonly color = new THREE.Color();
   private readonly tmpColor = new THREE.Color();
 
@@ -53,11 +68,36 @@ export class CreatureRenderer {
   constructor() {
     this.bodyMaterial = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.78,
-      metalness: 0.06,
+      // Hide and scale, not stone: a little sheen so a creature turning in
+      // torchlight has a rolling highlight along its back.
+      roughness: 0.62,
+      metalness: 0.14,
+      // Creatures are what the eye goes to, and a dungeon lit only by distant
+      // torches left them as silhouettes. The baked environment carries a warm
+      // floor bounce; leaning on it here lifts the creatures without flattening
+      // the walls, which keep their own much lower intensity.
+      envMapIntensity: 2.1,
+    });
+    // Armour is metal and must behave like metal: high metalness, low
+    // roughness, and it picks up the environment. Sharing the body material
+    // would have made a steel pauldron look like painted hide.
+    // Metalness deliberately short of 1. A fully metallic surface has no
+    // diffuse term at all — it is *only* what it reflects — and what it has to
+    // reflect down here is a dark cave, so armour came out as a black blob with
+    // one blue highlight. Half-metal keeps the steel colour visible and still
+    // catches the torches.
+    this.regaliaMaterial = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.3,
+      metalness: 0.52,
+      envMapIntensity: 1.8,
     });
     this.eyeMaterial = new THREE.MeshBasicMaterial({
       color: 0xffd08a,
+      // Explicit, even though the eye geometry's own colours are plain white:
+      // three only feeds instanceColor through to the fragment stage when
+      // USE_COLOR is defined, and that comes from this flag.
+      vertexColors: true,
       transparent: true,
       opacity: 0.95,
       blending: THREE.AdditiveBlending,
@@ -80,6 +120,13 @@ export class CreatureRenderer {
       opacity: 0.55,
       color: 0x000000,
       blending: THREE.NormalBlending,
+      depthWrite: false,
+    });
+    this.auraMaterial = new THREE.MeshBasicMaterial({
+      map: makeGlowTexture(96, 'rgba(255,214,140,0.9)'),
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
   }
@@ -110,6 +157,9 @@ export class CreatureRenderer {
     eyes.frustumCulled = false;
     eyes.renderOrder = 3;
     eyes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    eyes.instanceColor =
+      new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_TYPE * 3).fill(1), 3);
+    eyes.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
     const ringGeo = new THREE.PlaneGeometry(1, 1);
     ringGeo.rotateX(-Math.PI / 2);
@@ -128,14 +178,40 @@ export class CreatureRenderer {
     shadow.renderOrder = 0;
     shadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
+    // Measure the body once, so its kit is placed against the shape it actually
+    // has rather than against an assumed one.
+    const rig = rigFor(model.body);
+    const regalia = new Map<Rank, THREE.InstancedMesh>();
+    for (const rank of WORN_RANKS) {
+      const mesh = new THREE.InstancedMesh(
+        buildRankRegalia(type, rank, rig), this.regaliaMaterial, MAX_PER_TYPE);
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      regalia.set(rank, mesh);
+      this.group.add(mesh);
+    }
+
+    const auraGeo = new THREE.PlaneGeometry(1, 1);
+    auraGeo.rotateX(-Math.PI / 2);
+    const aura = new THREE.InstancedMesh(auraGeo, this.auraMaterial, MAX_PER_TYPE);
+    aura.frustumCulled = false;
+    aura.renderOrder = 2;
+    aura.count = 0;
+    aura.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    aura.instanceColor =
+      new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_TYPE * 3), 3);
+    aura.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
     batch = {
-      body, limb, eyes, ring, shadow, limbsPer,
+      body, limb, eyes, ring, shadow, regalia, aura, limbsPer,
       flapping: model.flapping,
       limbOffset: model.limbOffset,
       height: model.height,
     };
     this.batches.set(type, batch);
-    this.group.add(shadow, ring, body, limb, eyes);
+    this.group.add(shadow, ring, aura, body, limb, eyes);
     this.pickTable.set(body, []);
     return batch;
   }
@@ -162,6 +238,8 @@ export class CreatureRenderer {
         batch.eyes.count = 0;
         batch.ring.count = 0;
         batch.shadow.count = 0;
+        for (const mesh of batch.regalia.values()) mesh.count = 0;
+        batch.aura.count = 0;
         this.pickTable.get(batch.body)?.splice(0);
       }
     }
@@ -171,12 +249,54 @@ export class CreatureRenderer {
       const picks = this.pickTable.get(batch.body)!;
       picks.length = 0;
 
+      // Rank kit fills its own meshes, so each rank's counter is tracked here.
+      const rankN = new Map<Rank, number>();
+      for (const rank of WORN_RANKS) rankN.set(rank, 0);
+      let auraN = 0;
+
       let limbN = 0;
       for (let n = 0; n < list.length; n++) {
         const c = list[n];
         picks.push(c);
         this.placeCreature(batch, c, n, time, dt);
         limbN = this.placeLimbs(batch, c, limbN, time);
+
+        // The body matrix was just written; reuse it so kit tracks the body's
+        // bob, lean and roll exactly rather than being animated a second time.
+        const rank = rankOf(c.level);
+        if (rank > 0 && c.state !== CreatureState.Dying) {
+          const mesh = batch.regalia.get(rank);
+          if (mesh) {
+            const at = rankN.get(rank) ?? 0;
+            batch.body.getMatrixAt(n, this.matrix);
+            mesh.setMatrixAt(at, this.matrix);
+            rankN.set(rank, at + 1);
+          }
+        }
+        const glow = auraStrength(c, time);
+        if (glow > 0 && c.state !== CreatureState.Dying) {
+          const size = CREATURE_SPECS[c.type].scale * rankScale(c.level) * 2.3;
+          this.dummy.position.set(c.x, 0.02, c.y);
+          this.dummy.rotation.set(0, time * 0.5, 0);
+          this.dummy.scale.set(size, 1, size);
+          this.dummy.updateMatrix();
+          batch.aura.setMatrixAt(auraN, this.dummy.matrix);
+          this.color.setRGB(glow, glow * 0.82, glow * 0.5);
+          batch.aura.setColorAt(auraN, this.color);
+          auraN++;
+        }
+      }
+
+      for (const rank of WORN_RANKS) {
+        const mesh = batch.regalia.get(rank);
+        if (!mesh) continue;
+        mesh.count = rankN.get(rank) ?? 0;
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      batch.aura.count = auraN;
+      if (auraN > 0) {
+        batch.aura.instanceMatrix.needsUpdate = true;
+        if (batch.aura.instanceColor) batch.aura.instanceColor.needsUpdate = true;
       }
 
       batch.body.count = list.length;
@@ -192,6 +312,7 @@ export class CreatureRenderer {
       batch.shadow.instanceMatrix.needsUpdate = true;
       if (batch.body.instanceColor) batch.body.instanceColor.needsUpdate = true;
       if (batch.ring.instanceColor) batch.ring.instanceColor.needsUpdate = true;
+      if (batch.eyes.instanceColor) batch.eyes.instanceColor.needsUpdate = true;
     }
   }
 
@@ -209,7 +330,7 @@ export class CreatureRenderer {
       || (c.state === CreatureState.Fighting && c.path !== null);
     c.animPhase += dt * (moving ? spec.speed * 3.4 : 1.6);
 
-    const scale = spec.scale * (1 + 0.035 * (c.level - 1));
+    const scale = spec.scale * rankScale(c.level);
     let y = c.z;
     let lean = 0;
     let roll = 0;
@@ -283,6 +404,12 @@ export class CreatureRenderer {
     if (c.hasteTicks > 0) this.color.lerp(this.tmpColor.setRGB(1.4, 1.25, 0.7), 0.35);
     batch.body.setColorAt(n, this.color);
 
+    // A veteran's eyes are lit from inside — the cheapest read on rank there is,
+    // and the one that still works when the creature is a silhouette.
+    const glow = eyeGlowFor(c.level) * (c.state === CreatureState.Sleeping ? 0.35 : 1);
+    this.color.setRGB(glow, glow * 0.94, glow * 0.86);
+    batch.eyes.setColorAt(n, this.color);
+
     // Owner ring on the floor: how you tell yours from theirs at a glance.
     const { dummy: d2 } = this;
     const ringScale = scale * 1.5;
@@ -309,7 +436,7 @@ export class CreatureRenderer {
     batch: TypeBatch, c: Creature, limbN: number, time: number,
   ): number {
     const spec = CREATURE_SPECS[c.type];
-    const scale = spec.scale * (1 + 0.035 * (c.level - 1));
+    const scale = spec.scale * rankScale(c.level);
     const { limbDummy } = this;
     const pairs = batch.limbsPer / 2;
 
@@ -385,10 +512,14 @@ export class CreatureRenderer {
       b.eyes.geometry.dispose();
       b.ring.geometry.dispose();
       b.shadow.geometry.dispose();
+      b.aura.geometry.dispose();
+      for (const mesh of b.regalia.values()) mesh.geometry.dispose();
     }
     this.bodyMaterial.dispose();
+    this.regaliaMaterial.dispose();
     this.eyeMaterial.dispose();
     this.ringMaterial.dispose();
     this.shadowMaterial.dispose();
+    this.auraMaterial.dispose();
   }
 }

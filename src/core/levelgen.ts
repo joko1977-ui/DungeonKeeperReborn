@@ -9,6 +9,7 @@ import { CreatureType, createCreature } from './creatures';
 import { Game } from './game';
 import { generateObjectives } from './objectives';
 import { Rng, valueNoise2D } from './rng';
+import { seedSim } from './sim';
 import { TileMap } from './tilemap';
 
 export interface LevelOptions {
@@ -35,6 +36,9 @@ export function generateLevel(opts: LevelOptions = {}): Game {
   const height = opts.height ?? 72;
   const seed = opts.seed ?? 1997;
   const rng = new Rng(seed);
+  // Seed the simulation too, not just the map. A seeded map on an unseeded
+  // game diverges within seconds, which makes the seed a lie.
+  seedSim(seed);
 
   const map = new TileMap(width, height);
 

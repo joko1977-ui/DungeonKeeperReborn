@@ -275,10 +275,14 @@ export class DeviceRenderer {
   constructor(map: TileMap) {
     this.map = map;
 
+    // Traps and doors are mostly ironwork, so they lean metallic and pick up
+    // the dungeon's reflection — an iron door with no specular response reads
+    // as a painted plank.
     this.body = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.72,
-      metalness: 0.22,
+      roughness: 0.46,
+      metalness: 0.6,
+      envMapIntensity: 1.3,
     });
     // Flat and bright rather than emissive: an emissive material with its own
     // colour fights the per-instance colour and every trap ends up the same

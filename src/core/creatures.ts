@@ -1,4 +1,5 @@
 import { Owner, RoomType } from './constants';
+import { simInt, simRandom } from './sim';
 
 export enum CreatureType {
   Imp = 0,
@@ -236,7 +237,7 @@ export function createCreature(
     type,
     owner,
     x, y, z: spec.flying ? 0.55 : 0,
-    facing: Math.random() * Math.PI * 2,
+    facing: simRandom() * Math.PI * 2,
     state: CreatureState.Idle,
     stateTimer: 0,
     hp: spec.maxHp,
@@ -251,11 +252,11 @@ export function createCreature(
     pathIndex: 0,
     targetTile: -1,
     targetCreature: -1,
-    thinkCooldown: (Math.random() * 20) | 0,
+    thinkCooldown: simInt(20),
     hasteTicks: 0,
     inHand: false,
-    animPhase: Math.random() * Math.PI * 2,
-    seed: Math.random(),
+    animPhase: simRandom() * Math.PI * 2,
+    seed: simRandom(),
     isLord: false,
     waveId: 0,
   };

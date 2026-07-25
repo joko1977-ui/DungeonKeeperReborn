@@ -25,6 +25,7 @@ import {
 import { PathFinder } from './pathfinding';
 import { RoomIndex, heartTile, nearestRoomTile } from './rooms';
 import { TileMap } from './tilemap';
+import { simInt, simRandom } from './sim';
 
 /**
  * Everything the creature AI is allowed to touch.
@@ -177,8 +178,8 @@ function wander(world: AIWorld, c: Creature): void {
   const { map } = world;
   const pass = passableFor(map, c);
   for (let attempt = 0; attempt < 6; attempt++) {
-    const a = Math.random() * Math.PI * 2;
-    const r = 2 + Math.random() * 4;
+    const a = simRandom() * Math.PI * 2;
+    const r = 2 + simRandom() * 4;
     const nx = Math.round(c.x + Math.cos(a) * r);
     const ny = Math.round(c.y + Math.sin(a) * r);
     if (!map.inBounds(nx, ny) || !pass(nx, ny)) continue;
@@ -511,7 +512,7 @@ function doHeartBreaking(world: AIWorld, c: Creature): void {
   c.facing = Math.atan2(ty - c.y, tx - c.x);
   if (c.stateTimer % 10 !== 0) return;
   world.damageHeart(owner, strengthOf(c) * 1.5);
-  world.effect('hit', tx + (Math.random() - 0.5), ty + (Math.random() - 0.5));
+  world.effect('hit', tx + (simRandom() - 0.5), ty + (simRandom() - 0.5));
 }
 
 /**
@@ -866,7 +867,7 @@ export function updateCreature(world: AIWorld, c: Creature, dt: number): void {
     if (c.state === CreatureState.Walking) c.state = CreatureState.Idle;
     return;
   }
-  c.thinkCooldown = 8 + ((Math.random() * 12) | 0);
+  c.thinkCooldown = 8 + simInt(12);
   c.stateTimer = 0;
 
   if (spec.worker) thinkImp(world, c);

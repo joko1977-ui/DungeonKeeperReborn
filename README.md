@@ -143,6 +143,17 @@ open, build a treasury, lair, hatchery and training room, and send whatever they
 can spare at your heart. They are not clever. The pressure is that they never
 stop.
 
+**Rank shows.** A creature that levels up does not merely gain a number: at
+level 4 it picks up scavenged plating and studs down its spine, at 7 heavier
+pauldrons with rivets, bracers and a jawguard, and at 9 polished steel, a horned
+circlet and a crest of blades. It grows as it goes, its eyes brighten, and a
+champion carries a slow ring of light. You can tell a veteran across the room,
+which is most of why training one is worth the gold.
+
+**Seeds replay.** The whole simulation runs on one seeded stream, so the same
+seed plays the same way every time — the map, the creatures the portal offers,
+the hero parties, all of it.
+
 **Breaking a heart** takes a sustained assault. Since you can only drop creatures
 onto floor you own, invading means digging in and then planting a **Call to
 Arms** — a standing flag your creatures hold until you cast on it again. That is
@@ -239,6 +250,7 @@ src/
     devices.ts     trap and door specs, and the manufacture queue
     objectives.ts  level goals, progress, and seeded objective sets
     keeperAi.ts    rival keepers: dig orders, building, raids
+    sim.ts         the simulation's one seeded random stream
     game.ts        the tick, the economy, spells, the Hand of Evil
     levelgen.ts    seeded realm generation
   render/      three.js
@@ -248,6 +260,8 @@ src/
     creatureRenderer.ts instanced drawing and procedural animation
     roomProps.ts       room furniture — heaps, nests, dummies, anvils, the Heart
     deviceRenderer.ts  traps, doors and the gas they leave behind
+    creatureRank.ts    armour and horns earned by levelling up
+    landmarks.ts       room labels and beacons over the places that matter
     effects.ts         torches, dynamic lights, particles
     scene.ts           renderer, lighting rig, post-processing
   audio/       the soundscape, all synthesised

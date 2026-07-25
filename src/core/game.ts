@@ -51,6 +51,7 @@ import {
 import { PathFinder } from './pathfinding';
 import { RoomIndex, buildRoom, heartTile, nearestRoomTile, sellRoom, treasuryCapacity } from './rooms';
 import { TileMap } from './tilemap';
+import { simInt } from './sim';
 
 /** A transient event the renderer turns into particles and the mixer into sound. */
 export interface GameEffect {
@@ -106,6 +107,17 @@ const LORD_FALLBACK_SECONDS = 600;
 
 /** A raiding party that has achieved nothing for this long goes home. */
 const WAVE_PATIENCE_SECONDS = 420;
+
+/**
+ * Seconds between hero raids.
+ *
+ * Re-tuned upward once heroes started arriving. The old cadence was set against
+ * heroes with no drive at all: they spawned, wandered off into the rock and were
+ * never seen again, so a raid every three minutes cost nothing. Now that a party
+ * marches on your heart and digs through the wall if you have not left it a way
+ * in, the same numbers are a siege you cannot answer.
+ */
+const HERO_WAVE_INTERVAL = 300;
 
 /** How fast hero sappers chew through a wall, in dig health per tick. */
 const SIEGE_DIG_RATE = 1.1;
@@ -417,7 +429,7 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
       for (const owner of KEEPERS) this.trySpawnFromPortal(owner);
     }
     if (this.tickCount >= this.nextHeroWave) {
-      this.nextHeroWave = this.tickCount + TICKS_PER_SECOND * 200;
+      this.nextHeroWave = this.tickCount + TICKS_PER_SECOND * HERO_WAVE_INTERVAL;
       this.spawnHeroWave();
     }
     this.updateHeroWaveState();
@@ -745,7 +757,7 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     }
     if (pool.length === 0) return;
 
-    const type = pool[(Math.random() * pool.length) | 0];
+    const type = pool[simInt(pool.length)];
     const c = createCreature(type, owner, map.xOf(portal), map.yOf(portal));
     this.creatures.push(c);
     this.effect('poof', c.x, c.y);
@@ -763,17 +775,17 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     if (this.liveWaves.size >= 2) return;
 
     this.heroWaveNumber++;
-    const gate = gates[(Math.random() * gates.length) | 0];
+    const gate = gates[simInt(gates.length)];
     const gx = this.map.xOf(gate), gy = this.map.yOf(gate);
 
-    const size = Math.min(6, 1 + Math.floor(this.heroWaveNumber / 2));
+    const size = Math.min(5, 1 + Math.floor(this.heroWaveNumber / 3));
     const roster: CreatureType[] = [CreatureType.Dwarf, CreatureType.Archer];
-    if (this.heroWaveNumber >= 3) roster.push(CreatureType.Knight);
+    if (this.heroWaveNumber >= 4) roster.push(CreatureType.Knight);
 
     for (let i = 0; i < size; i++) {
-      const type = roster[(Math.random() * roster.length) | 0];
+      const type = roster[simInt(roster.length)];
       const c = createCreature(type, Owner.Heroes, gx, gy);
-      c.level = Math.min(8, 1 + Math.floor(this.heroWaveNumber / 2));
+      c.level = Math.min(7, 1 + Math.floor(this.heroWaveNumber / 3));
       c.hp = maxHpOf(c);
       c.waveId = this.heroWaveNumber;
       this.creatures.push(c);

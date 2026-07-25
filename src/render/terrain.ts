@@ -164,6 +164,9 @@ export class TerrainRenderer {
       emissiveIntensity: 1.0,
       roughness: 1.0,
       metalness: 1.0,
+      // Stone is not a mirror. Just enough of the dungeon's own bounce to give
+      // damp flagstone a sheen where the torchlight rakes across it.
+      envMapIntensity: 0.45,
       normalScale: new THREE.Vector2(1.1, 1.1),
     });
     applyAtlasShader(this.floorMaterial, floorAtlas);
@@ -213,6 +216,7 @@ export class TerrainRenderer {
       emissiveIntensity: 1.0,
       roughness: 1.0,
       metalness: 1.0,
+      envMapIntensity: 0.40,
       normalScale: new THREE.Vector2(1.35, 1.35),
     });
     applyAtlasShader(this.wallMaterial, wallAtlas);

@@ -233,10 +233,15 @@ export class RoomPropRenderer {
   constructor(map: TileMap) {
     this.map = map;
 
+    // Furniture is a mix of wood, straw, stone and metal in one merged mesh, so
+    // this is a compromise: rough enough for timber, metallic enough that the
+    // gold heaps and the anvil catch the dungeon's reflection instead of
+    // reading as flat paint.
     this.material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.82,
-      metalness: 0.08,
+      roughness: 0.58,
+      metalness: 0.42,
+      envMapIntensity: 1.15,
     });
     // The heart and the portal each need their OWN emissive colour. Sharing
     // one material with white emissive drowned the per-instance keeper colour
@@ -247,6 +252,7 @@ export class RoomPropRenderer {
       metalness: 0.05,
       emissive: new THREE.Color(0x8a1410),
       emissiveIntensity: 0.9,
+      envMapIntensity: 0.6,
     });
     this.portalMaterial = new THREE.MeshStandardMaterial({
       vertexColors: true,
