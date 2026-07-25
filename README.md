@@ -215,8 +215,17 @@ A few decisions worth knowing about:
   which material an instance wears is a per-instance atlas index read by a small
   patch to three's standard shader. Map size costs almost nothing.
 - **Torches are cheap.** Every wall bordering claimed floor gets a glowing
-  point, but only the nine nearest the camera are promoted to real dynamic
+  point, but only the seven nearest the camera are promoted to real dynamic
   lights.
+- **Warm and cool are kept apart.** Fill light is cool and dim so unlit stone
+  reads as blue shadow; everything warm comes from fire. Flat neutral fill was
+  what made early builds look like brown mud. A final grade after tone mapping
+  lifts the blacks toward blue, restores the saturation ACES takes away, and
+  vignettes the frame.
+- **Nothing repeats visibly.** Wall blocks are chamfered and get per-tile
+  height, yaw and brightness variation; floor quads get a random quarter turn,
+  because identical UVs on every tile aligned the mortar into one hard lattice
+  across the whole map.
 - **Nothing is an asset.** Textures, creature meshes, room furniture, icons,
   cursors and every sound are generated at runtime. The whole game is code.
 - **Creatures are sculpted, not assembled from spheres.** Each species is 25-40

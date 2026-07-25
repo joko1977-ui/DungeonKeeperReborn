@@ -26,6 +26,7 @@ interface TypeBatch {
   limb: THREE.InstancedMesh;
   eyes: THREE.InstancedMesh;
   ring: THREE.InstancedMesh;
+  shadow: THREE.InstancedMesh;
   limbsPer: number;
   flapping: boolean;
   limbOffset: THREE.Vector3;
@@ -39,6 +40,7 @@ export class CreatureRenderer {
   private readonly bodyMaterial: THREE.MeshStandardMaterial;
   private readonly eyeMaterial: THREE.MeshBasicMaterial;
   private readonly ringMaterial: THREE.MeshBasicMaterial;
+  private readonly shadowMaterial: THREE.MeshBasicMaterial;
 
   private readonly dummy = new THREE.Object3D();
   private readonly limbDummy = new THREE.Object3D();
@@ -64,8 +66,20 @@ export class CreatureRenderer {
     this.ringMaterial = new THREE.MeshBasicMaterial({
       map: makeGlowTexture(64, 'rgba(255,255,255,0.85)'),
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.42,
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    // A soft dark blob under each creature. The owner ring is additive, so on
+    // its own it lit the floor and made everything look like it was hovering
+    // over its own lamp; this is the contact shadow that puts them on the
+    // ground. Multiply blending so it darkens whatever it lands on.
+    this.shadowMaterial = new THREE.MeshBasicMaterial({
+      map: makeGlowTexture(64, 'rgba(255,255,255,1)'),
+      transparent: true,
+      opacity: 0.55,
+      color: 0x000000,
+      blending: THREE.NormalBlending,
       depthWrite: false,
     });
   }
@@ -107,14 +121,21 @@ export class CreatureRenderer {
       new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_TYPE * 3), 3);
     ring.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
+    const shadowGeo = new THREE.PlaneGeometry(1, 1);
+    shadowGeo.rotateX(-Math.PI / 2);
+    const shadow = new THREE.InstancedMesh(shadowGeo, this.shadowMaterial, MAX_PER_TYPE);
+    shadow.frustumCulled = false;
+    shadow.renderOrder = 0;
+    shadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
     batch = {
-      body, limb, eyes, ring, limbsPer,
+      body, limb, eyes, ring, shadow, limbsPer,
       flapping: model.flapping,
       limbOffset: model.limbOffset,
       height: model.height,
     };
     this.batches.set(type, batch);
-    this.group.add(ring, body, limb, eyes);
+    this.group.add(shadow, ring, body, limb, eyes);
     this.pickTable.set(body, []);
     return batch;
   }
@@ -140,6 +161,7 @@ export class CreatureRenderer {
         batch.limb.count = 0;
         batch.eyes.count = 0;
         batch.ring.count = 0;
+        batch.shadow.count = 0;
         this.pickTable.get(batch.body)?.splice(0);
       }
     }
@@ -160,12 +182,14 @@ export class CreatureRenderer {
       batch.body.count = list.length;
       batch.eyes.count = list.length;
       batch.ring.count = list.length;
+      batch.shadow.count = list.length;
       batch.limb.count = limbN;
 
       batch.body.instanceMatrix.needsUpdate = true;
       batch.limb.instanceMatrix.needsUpdate = true;
       batch.eyes.instanceMatrix.needsUpdate = true;
       batch.ring.instanceMatrix.needsUpdate = true;
+      batch.shadow.instanceMatrix.needsUpdate = true;
       if (batch.body.instanceColor) batch.body.instanceColor.needsUpdate = true;
       if (batch.ring.instanceColor) batch.ring.instanceColor.needsUpdate = true;
     }
@@ -270,6 +294,14 @@ export class CreatureRenderer {
     this.color.setHex(OWNER_COLORS[c.owner as Owner]);
     if (c.state === CreatureState.Dying) this.color.multiplyScalar(0.3);
     batch.ring.setColorAt(n, this.color);
+
+    // Contact shadow: tighter than the ring, and it shrinks as a flyer climbs.
+    const lift = Math.max(0, y - c.z) + (spec.flying ? c.z : 0);
+    const shadowScale = scale * 1.15 * Math.max(0.45, 1 - lift * 0.9);
+    d2.position.set(c.x, 0.008, c.y);
+    d2.scale.set(shadowScale, 1, shadowScale);
+    d2.updateMatrix();
+    batch.shadow.setMatrixAt(n, d2.matrix);
   }
 
   /** Lay out one creature's limbs. Returns the next free limb instance slot. */
@@ -352,9 +384,11 @@ export class CreatureRenderer {
       b.limb.geometry.dispose();
       b.eyes.geometry.dispose();
       b.ring.geometry.dispose();
+      b.shadow.geometry.dispose();
     }
     this.bodyMaterial.dispose();
     this.eyeMaterial.dispose();
     this.ringMaterial.dispose();
+    this.shadowMaterial.dispose();
   }
 }

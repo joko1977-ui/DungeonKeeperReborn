@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   OWNER_COLORS,
   Owner,
@@ -26,6 +27,13 @@ const FLOOR_ROCK = 0, FLOOR_FLAGSTONE = 1, FLOOR_TREASURY = 2, FLOOR_LAIR = 3,
   FLOOR_WATER = 8, FLOOR_LAVA = 9;
 
 export const WALL_HEIGHT = 1.15;
+
+/** Deterministic per-tile noise in [0,1), for shape and shade variation. */
+function tileNoise(tile: number, salt: number): number {
+  let t = (tile * 374761393) ^ (salt * 668265263);
+  t = Math.imul(t ^ (t >>> 13), 1274126177);
+  return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
+}
 
 /** Which floor atlas slot a tile should use. */
 function floorSlotFor(map: TileMap, i: number): number {
@@ -173,8 +181,28 @@ export class TerrainRenderer {
     this.floorMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
     /* ---- walls ---- */
-    const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
-    wallGeo.translate(0, WALL_HEIGHT / 2, 0);
+    // A plain cube per tile made the map look like a spreadsheet. This is a
+    // body with an inset, chamfered cap: the bevel gives every block a lit top
+    // edge and a shadowed under-edge, which is what stops a field of them
+    // reading as one flat mass.
+    const wallGeo = (() => {
+      const cap = 0.13;
+      const inset = 0.11;
+      const body = new THREE.BoxGeometry(1, WALL_HEIGHT - cap, 1);
+      body.translate(0, (WALL_HEIGHT - cap) / 2, 0);
+      // A frustum: wider at the bottom, narrower on top, giving the chamfer.
+      const top = new THREE.CylinderGeometry(
+        (1 - inset) * 0.5 * Math.SQRT2, 0.5 * Math.SQRT2, cap, 4, 1,
+      );
+      top.rotateY(Math.PI / 4);
+      top.translate(0, WALL_HEIGHT - cap / 2, 0);
+      const merged = mergeGeometries([body, top], false);
+      body.dispose();
+      top.dispose();
+      if (!merged) throw new Error('failed to build wall geometry');
+      merged.computeVertexNormals();
+      return merged;
+    })();
     this.wallMaterial = new THREE.MeshStandardMaterial({
       map: wallAtlas.map,
       normalMap: wallAtlas.normalMap,
@@ -256,18 +284,26 @@ export class TerrainRenderer {
           // silently limited excavation tagging to the single exposed face,
           // which makes digging a slab miserable. They are one instanced draw
           // call either way.
+          // Natural rock gets a little height and yaw variation; masonry a
+          // keeper has reinforced stays square, because it was cut square.
+          const dressed = terrain === Terrain.Wall;
+          const h = dressed ? 1 : 0.92 + tileNoise(i, 1) * 0.16;
+          const spin = dressed ? 0 : (Math.floor(tileNoise(i, 2) * 4) * Math.PI) / 2;
           dummy.position.set(x, 0, y);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(1, 1, 1);
+          dummy.rotation.set(0, spin, 0);
+          dummy.scale.set(1, h, 1);
           dummy.updateMatrix();
           this.wallMesh.setMatrixAt(wallN, dummy.matrix);
           this.wallTileAttr.setX(wallN, wallSlotFor(map, i));
 
           // Reinforced walls wear their keeper's colour.
-          if (terrain === Terrain.Wall && owner !== Owner.None) {
+          if (dressed && owner !== Owner.None) {
             color.setHex(OWNER_COLORS[owner]).lerp(new THREE.Color(0xffffff), 0.45);
           } else {
-            color.setRGB(1, 1, 1);
+            // Break up the mass: identical instances of one texture still read
+            // as a repeat, and a few percent of brightness scatter hides it.
+            const v = 0.82 + tileNoise(i, 3) * 0.36;
+            color.setRGB(v, v * (0.97 + tileNoise(i, 4) * 0.06), v * 0.95);
           }
           this.wallMesh.setColorAt(wallN, color);
           this.wallInstanceTile[wallN] = i;
@@ -282,16 +318,19 @@ export class TerrainRenderer {
           }
         } else {
           dummy.position.set(x, terrain === Terrain.Water || terrain === Terrain.Lava ? -0.18 : 0, y);
-          dummy.rotation.set(0, 0, 0);
+          dummy.rotation.set(0, (Math.floor(tileNoise(i, 6) * 4) * Math.PI) / 2, 0);
           dummy.scale.set(1, 1, 1);
           dummy.updateMatrix();
           this.floorMesh.setMatrixAt(floorN, dummy.matrix);
           this.floorTileAttr.setX(floorN, floorSlotFor(map, i));
 
+          const fv = 0.86 + tileNoise(i, 5) * 0.28;
           if (terrain === Terrain.Claimed && owner !== Owner.None) {
-            color.setHex(OWNER_COLORS[owner]).lerp(new THREE.Color(0xffffff), 0.62);
+            color.setHex(OWNER_COLORS[owner])
+              .lerp(new THREE.Color(0xffffff), 0.62)
+              .multiplyScalar(fv);
           } else {
-            color.setRGB(1, 1, 1);
+            color.setRGB(fv, fv * 0.99, fv * 0.97);
           }
           this.floorMesh.setColorAt(floorN, color);
           this.floorInstanceTile[floorN] = i;

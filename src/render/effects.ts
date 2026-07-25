@@ -75,7 +75,7 @@ export class TorchSystem {
     this.group.add(this.points);
 
     for (let i = 0; i < LIVE_LIGHTS; i++) {
-      const light = new THREE.PointLight(0xffb066, 0, 9, 1.7);
+      const light = new THREE.PointLight(0xffb066, 0, 10.5, 1.5);
       light.castShadow = false;
       this.lights.push(light);
       this.group.add(light);
@@ -203,9 +203,9 @@ export class TorchSystem {
         this.colors[entry.i * 3 + 2],
       );
       // Fade out with distance so lights swapping in and out doesn't pop.
-      const fade = THREE.MathUtils.clamp(1 - entry.d / 340, 0, 1);
-      light.intensity = (s.isLava ? 5.5 : 7.5) * fade;
-      light.distance = s.isLava ? 8 : 7.5;
+      const fade = THREE.MathUtils.clamp(1 - entry.d / 420, 0, 1);
+      light.intensity = (s.isLava ? 11 : 15) * fade;
+      light.distance = s.isLava ? 11 : 10.5;
     }
   }
 

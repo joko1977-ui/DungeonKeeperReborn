@@ -201,14 +201,17 @@ const FLAGSTONE: MaterialRecipe = {
     const cols = 3;
     const rx = x * cols, ry = y * cols;
     const fx = rx - Math.floor(rx), fy = ry - Math.floor(ry);
-    const m = 0.07;
+    const m = 0.045;
     const edge = clamp01(Math.min(Math.min(fx, 1 - fx), Math.min(fy, 1 - fy)) / m);
-    return clamp01(edge * 0.75 + fbm(x * 16, y * 16, 3, 16, rnd) * 0.3);
+    // Keep the joints shallow: 0.45 floor rather than 0, so a mortar line is a
+    // crease in stone instead of a black gap.
+    return clamp01(0.45 + edge * 0.4 + fbm(x * 16, y * 16, 3, 16, rnd) * 0.28);
   },
   color: (h, x, y, rnd) => {
     const grit = fbm(x * 22, y * 22, 3, 22, rnd);
-    const v = lerp(0.09, 0.38, h) * lerp(0.86, 1.12, grit);
-    return [v, v * 0.97, v * 0.92];
+    const v = lerp(0.22, 0.52, h) * lerp(0.86, 1.12, grit);
+    // Warm the stone slightly; a neutral grey floor under cool fill goes blue.
+    return [v * 1.06, v * 0.99, v * 0.88];
   },
   roughness: (h) => lerp(0.97, 0.70, h),
 };
