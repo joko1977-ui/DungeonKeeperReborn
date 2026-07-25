@@ -1,5 +1,6 @@
 import {
   envelope,
+  isWebKit,
   makeBrownNoise,
   makeCaveImpulse,
   makeWhiteNoise,
@@ -66,6 +67,8 @@ export class AudioEngine {
 
   private started = false;
   private suspended = false;
+  /** Extra headroom on platforms whose limiter we deliberately under-drive. */
+  private masterTrim = 1;
 
   /** Where the camera is looking, for panning effects. */
   private listenerX = 0;
@@ -129,25 +132,38 @@ export class AudioEngine {
     this.started = true;
 
     // A limiter on the end keeps a busy dungeon from clipping.
+    //
+    // WebKit's DynamicsCompressor does not match Blink's for the same
+    // parameters — the gain-reduction curve differs, so a setting that limits
+    // transparently in Chrome audibly pumps in Safari. Ask it to do less work
+    // there and make up the headroom by running the master a little lower.
+    const webkit = isWebKit();
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -8;
-    limiter.knee.value = 6;
-    limiter.ratio.value = 12;
+    limiter.threshold.value = webkit ? -3 : -8;
+    limiter.knee.value = webkit ? 12 : 6;
+    limiter.ratio.value = webkit ? 5 : 12;
     limiter.attack.value = 0.004;
     limiter.release.value = 0.22;
     limiter.connect(ctx.destination);
 
     this.master = ctx.createGain();
-    this.master.gain.value = this.settings.muted ? 0 : this.settings.master;
+    this.masterTrim = webkit ? 0.78 : 1;
+    this.master.gain.value = this.settings.muted
+      ? 0 : this.settings.master * this.masterTrim;
     this.master.connect(limiter);
 
     this.duck = ctx.createGain();
     this.duck.gain.value = 1;
     this.duck.connect(this.master);
 
-    // One shared convolver puts everything in the same stone room.
+    // One shared convolver puts everything in the same stone room. WebKit's
+    // convolution is markedly more expensive and normalises the impulse
+    // differently, so it gets a shorter, faster-decaying tail — a glitching
+    // reverb sounds far worse than a smaller one.
     const reverb = ctx.createConvolver();
-    reverb.buffer = makeCaveImpulse(ctx, 2.8, 2.6);
+    reverb.buffer = webkit
+      ? makeCaveImpulse(ctx, 1.5, 3.0)
+      : makeCaveImpulse(ctx, 2.8, 2.6);
     reverb.connect(this.duck);
     this.reverbSend = ctx.createGain();
     this.reverbSend.gain.value = 0.9;
@@ -600,7 +616,8 @@ export class AudioEngine {
     if (this.ctx) {
       const now = this.ctx.currentTime;
       this.master.gain.cancelScheduledValues(now);
-      this.master.gain.linearRampToValueAtTime(muted ? 0 : this.settings.master, now + 0.15);
+      this.master.gain.linearRampToValueAtTime(
+        muted ? 0 : this.settings.master * this.masterTrim, now + 0.15);
     }
     this.save();
   }
@@ -614,7 +631,8 @@ export class AudioEngine {
           : bus === 'score' ? this.scoreBus
             : bus === 'effects' ? this.effectsBus : null;
       if (target && !(bus === 'master' && this.settings.muted)) {
-        target.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+        const scaled = bus === 'master' ? v * this.masterTrim : v;
+        target.gain.setTargetAtTime(scaled, this.ctx.currentTime, 0.05);
       }
     }
     this.save();

@@ -75,7 +75,16 @@ export function makeCaveImpulse(
   return buffer;
 }
 
-/** ADSR-ish envelope applied to a gain node, in seconds. */
+/**
+ * ADSR-ish envelope applied to a gain node, in seconds.
+ *
+ * Every tail ends with a short *linear* ramp to true zero rather than an
+ * exponential ramp to a small epsilon. An exponential curve can never reach
+ * zero, so it leaves a step at the end — inaudible in Blink, which interpolates
+ * automation finely, but an audible tick in WebKit, whose automation resolution
+ * is coarser. With ~1ms attacks on the impact sounds, that tick was on every
+ * pick swing.
+ */
 export function envelope(
   gain: GainNode,
   now: number,
@@ -87,17 +96,36 @@ export function envelope(
   hold = 0,
 ): number {
   const g = gain.gain;
+  const floor = 0.0001;
+  /** Silence properly: exponential down to the floor, then linear to zero. */
+  const toSilence = (at: number): void => {
+    g.exponentialRampToValueAtTime(floor, at);
+    g.linearRampToValueAtTime(0, at + 0.006);
+  };
+
   g.cancelScheduledValues(now);
-  g.setValueAtTime(0.0001, now);
+  g.setValueAtTime(floor, now);
   g.exponentialRampToValueAtTime(Math.max(0.0002, peak), now + attack);
   if (sustain > 0) {
     g.exponentialRampToValueAtTime(Math.max(0.0002, peak * sustain), now + attack + decay);
     g.setValueAtTime(Math.max(0.0002, peak * sustain), now + attack + decay + hold);
-    g.exponentialRampToValueAtTime(0.0001, now + attack + decay + hold + release);
-    return attack + decay + hold + release;
+    toSilence(now + attack + decay + hold + release);
+    return attack + decay + hold + release + 0.006;
   }
-  g.exponentialRampToValueAtTime(0.0001, now + attack + decay);
-  return attack + decay;
+  toSilence(now + attack + decay);
+  return attack + decay + 0.006;
+}
+
+/**
+ * True when running on WebKit (Safari, and every browser on iOS).
+ *
+ * Used to back off the parts of the graph whose implementations diverge most
+ * from Blink's: the compressor curve, and convolution cost.
+ */
+export function isWebKit(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua);
 }
 
 /** Semitone offset to a frequency ratio. */

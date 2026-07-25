@@ -267,11 +267,11 @@ export class Game implements AIWorld {
     if (this.tickCount % 5 !== 0) return;
     for (const c of this.creatures) {
       if (c.owner !== Owner.Player) continue;
-      this.map.revealRadius(Math.round(c.x), Math.round(c.y), 5);
+      this.map.revealRadius(Math.round(c.x), Math.round(c.y), 8);
     }
     if (this.tickCount % 40 === 0) {
       for (const i of this.map.tilesOwnedBy(Owner.Player)) {
-        this.map.revealRadius(this.map.xOf(i), this.map.yOf(i), 3);
+        this.map.revealRadius(this.map.xOf(i), this.map.yOf(i), 6);
       }
     }
   }

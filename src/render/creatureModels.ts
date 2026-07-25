@@ -419,48 +419,98 @@ function buildDemonSpawn(color: number, accent: number): CreatureModel {
 
 function buildBileDemon(color: number, accent: number): CreatureModel {
   const b = new PartBuilder();
-  const gut = 0xb8c85a;
-  // Almost all belly, with folds and warts.
-  b.sphere(0.56, 0, 0.58, 0, color, 1.12, 1.0, 1.08);
-  b.sphere(0.46, 0, 0.44, 0.22, gut, 1.1, 0.85, 0.8);
-  b.torus(0.44, 0.09, 0, 0.34, 0.06, gut, Math.PI / 2 - 0.2);
-  b.torus(0.36, 0.07, 0, 0.20, 0.08, gut, Math.PI / 2 - 0.15);
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    b.sphere(0.05 + (i % 3) * 0.012,
-      Math.cos(a) * 0.5, 0.72 + Math.sin(a * 1.7) * 0.16, Math.sin(a) * 0.42,
-      accent, 1, 0.8, 1, 5);
+  const gut = 0xc4d468;      // pale, taut underbelly
+  const wart = accent;       // darker growths, spines and brow
+  const bone = 0xe8e0c0;
+
+  // The body is a sagging stack, not a ball: three overlapping lobes at
+  // different heights and offsets, widest low down, so it reads as weight.
+  b.sphere(0.50, 0, 0.72, -0.04, color, 1.05, 0.86, 1.0);
+  b.sphere(0.58, 0, 0.46, 0.02, color, 1.10, 0.80, 1.05);
+  b.sphere(0.52, 0, 0.24, 0.06, color, 1.14, 0.62, 1.08);
+  // Belly proper, hanging forward over the legs.
+  b.sphere(0.44, 0, 0.34, 0.30, gut, 1.05, 0.92, 0.72);
+  b.sphere(0.34, 0, 0.16, 0.34, gut, 1.0, 0.62, 0.62, 7);
+  // Creases between the lobes — this is what makes it read as flesh.
+  b.torus(0.50, 0.075, 0, 0.58, 0.02, wart, Math.PI / 2 - 0.18);
+  b.torus(0.52, 0.070, 0, 0.34, 0.04, wart, Math.PI / 2 - 0.12);
+  b.torus(0.42, 0.055, 0, 0.14, 0.06, wart, Math.PI / 2 - 0.08);
+
+  // Boils, in clusters rather than evenly scattered.
+  const boils: Array<[number, number, number, number]> = [
+    [-0.42, 0.86, -0.16, 0.075], [-0.30, 0.94, -0.26, 0.055], [-0.46, 0.74, -0.28, 0.05],
+    [0.40, 0.90, -0.20, 0.070], [0.50, 0.78, -0.10, 0.048],
+    [0.14, 0.98, -0.34, 0.060], [-0.08, 1.00, -0.30, 0.042],
+    [-0.54, 0.44, -0.18, 0.062], [0.56, 0.40, -0.22, 0.055],
+    [0.24, 0.20, -0.44, 0.050],
+  ];
+  for (const [x, y, z, r] of boils) {
+    b.sphere(r, x, y, z, wart, 1, 0.85, 1, 5);
+    b.sphere(r * 0.45, x, y + r * 0.6, z, 0xd8e08a, 1, 1, 1, 4);
   }
-  // Small head crammed onto the top of the mass.
-  b.sphere(0.24, 0, 1.02, 0.12, color, 1.05, 0.9, 1);
-  b.box(0.34, 0.08, 0.14, 0, 1.10, 0.24, accent);
-  b.sphere(0.14, 0, 0.94, 0.28, gut, 1.2, 0.75, 1, 6);
-  tusks(b, 0.055, 0.26, 0.13, 1.00, 0.24, 0xe8e0c0);
-  b.cone(0.03, 0.10, -0.11, 1.16, 0.10, accent, -0.5, 0, 0.4, 4);
-  b.cone(0.03, 0.10, 0.11, 1.16, 0.10, accent, -0.5, 0, -0.4, 4);
-  // Shoulder spikes and stubby arms.
+  // Two rows of blunt spines down the back.
+  for (let i = 0; i < 5; i++) {
+    const t = i / 4;
+    for (const sx of [-1, 1]) {
+      b.cone(0.055 - t * 0.018, 0.20 - t * 0.06,
+        sx * (0.16 + t * 0.05), 1.02 - t * 0.20, -0.30 - t * 0.10,
+        wart, -0.5 - t * 0.3, 0, sx * -0.25, 5);
+    }
+  }
+
+  // Head: wide, jowly, sunk into the shoulders, with a real mouth.
+  b.sphere(0.26, 0, 1.10, 0.16, color, 1.15, 0.92, 1.0);
+  b.sphere(0.19, -0.16, 1.00, 0.20, color, 1, 0.85, 1, 6);   // jowls
+  b.sphere(0.19, 0.16, 1.00, 0.20, color, 1, 0.85, 1, 6);
+  b.sphere(0.22, 0, 0.94, 0.24, gut, 1.2, 0.55, 0.9, 7);      // sagging chin
+  b.box(0.40, 0.09, 0.16, 0, 1.20, 0.28, wart);               // heavy brow
+  b.sphere(0.20, 0, 1.02, 0.34, 0x3a1a12, 1.15, 0.42, 0.6, 6); // open maw
+  // Lower fangs and upper teeth around the mouth.
+  for (let i = -2; i <= 2; i++) {
+    b.cone(0.026, 0.09, i * 0.075, 0.98, 0.38, bone, Math.PI, 0, 0, 4);
+    if (i !== 0) b.cone(0.022, 0.07, i * 0.06, 1.08, 0.38, bone, 0, 0, 0, 4);
+  }
+  // The big curving tusks, with a bound ring on each.
+  b.cone(0.06, 0.34, -0.20, 1.02, 0.26, bone, -2.35, 0, 0.22, 6);
+  b.cone(0.06, 0.34, 0.20, 1.02, 0.26, bone, -2.35, 0, -0.22, 6);
+  b.torus(0.045, 0.014, -0.215, 1.14, 0.20, 0xb8903a, -0.9, 0, 0.2);
+  b.torus(0.045, 0.014, 0.215, 1.14, 0.20, 0xb8903a, -0.9, 0, -0.2);
+  b.cone(0.035, 0.12, -0.24, 1.22, 0.06, wart, -0.5, 0, 0.5, 4);
+  b.cone(0.035, 0.12, 0.24, 1.22, 0.06, wart, -0.5, 0, -0.5, 4);
+
+  // Shoulder spikes and short, thick arms with clawed hands.
   for (const s of [-1, 1]) {
-    b.cone(0.09, 0.30, s * 0.44, 0.94, -0.10, accent, -0.9, 0, s * -0.5, 5);
-    b.cone(0.06, 0.20, s * 0.30, 1.00, -0.22, accent, -1.0, 0, s * -0.3, 5);
-    b.cylinder(0.10, 0.085, 0.30, s * 0.56, 0.66, 0.06, color, 0.45, 0, 0, 6);
-    b.sphere(0.11, s * 0.60, 0.48, 0.18, gut, 1, 0.95, 1.05, 6);
-    b.cone(0.025, 0.09, s * 0.62, 0.42, 0.26, 0xd8d0b0, -Math.PI / 2, 0, 0, 4);
+    b.sphere(0.22, s * 0.50, 0.90, -0.02, color, 1, 0.9, 1, 7);
+    b.cone(0.10, 0.34, s * 0.52, 1.02, -0.10, wart, -0.95, 0, s * -0.55, 5);
+    b.cone(0.065, 0.22, s * 0.34, 1.06, -0.24, wart, -1.05, 0, s * -0.35, 5);
+    b.cylinder(0.115, 0.10, 0.30, s * 0.60, 0.68, 0.08, color, 0.45, 0, s * 0.1, 6);
+    b.sphere(0.095, s * 0.63, 0.52, 0.18, color, 1, 1, 1, 6);
+    b.cylinder(0.10, 0.095, 0.22, s * 0.65, 0.40, 0.24, color, 0.7, 0, 0, 6);
+    b.sphere(0.115, s * 0.66, 0.28, 0.34, gut, 1.05, 0.9, 1.1, 6);
+    for (let i = -1; i <= 1; i++) {
+      b.cone(0.026, 0.10, s * 0.66 + i * 0.06, 0.24, 0.44, bone, -Math.PI / 2, 0, 0, 4);
+    }
   }
+  // A strap over the gut, because something has to hold all that up.
+  b.torus(0.50, 0.045, 0, 0.40, 0.02, 0x5a4028, Math.PI / 2 - 0.12);
+  b.box(0.16, 0.14, 0.06, 0, 0.40, 0.44, 0xb8903a);
   return {
     body: b.build(),
     limb: (() => {
       const l = new PartBuilder();
-      l.cylinder(0.155, 0.14, 0.20, 0, -0.10, 0, color, 0, 0, 0, 6);
-      l.sphere(0.14, 0, -0.22, 0.02, gut, 1.15, 0.75, 1.35, 6);
+      l.cylinder(0.175, 0.155, 0.20, 0, -0.10, 0, color, 0, 0, 0, 6);
+      l.torus(0.15, 0.04, 0, -0.19, 0, gut, Math.PI / 2);
+      l.sphere(0.15, 0, -0.26, 0.03, gut, 1.15, 0.7, 1.35, 6);
       for (let i = -1; i <= 1; i++) {
-        l.cone(0.03, 0.09, i * 0.07, -0.23, 0.18, 0xd8d0b0, -Math.PI / 2, 0, 0, 4);
+        l.cone(0.032, 0.10, i * 0.075, -0.27, 0.20, bone, -Math.PI / 2, 0, 0, 4);
       }
+      l.cone(0.028, 0.08, 0, -0.27, -0.14, bone, Math.PI / 2, 0, 0, 4);
       return l.build();
     })(),
-    eyes: eyePair(1.06, 0.28, 0.085, 0.048),
-    limbOffset: new THREE.Vector3(0.25, 0.28, 0),
+    eyes: eyePair(1.14, 0.32, 0.10, 0.05),
+    limbOffset: new THREE.Vector3(0.27, 0.28, 0),
     flapping: false,
-    height: 1.55,
+    height: 1.6,
   };
 }
 

@@ -248,10 +248,14 @@ export class TerrainRenderer {
         const owner = map.owner[i] as Owner;
 
         if (isSolid(terrain)) {
-          // Skip walls fully buried behind other walls — they can't be seen and
-          // they're the bulk of an unexcavated map.
-          if (this.isFullyEnclosed(x, y)) continue;
-
+          // Every revealed solid tile is drawn, including ones buried behind
+          // other rock. Culling them looked like a free win — they are hidden
+          // from the side, after all — but it made the map a set of floating
+          // islands instead of a solid mass with corridors cut through it, and
+          // worse, a tile with no geometry cannot be hit by a raycast. That
+          // silently limited excavation tagging to the single exposed face,
+          // which makes digging a slab miserable. They are one instanced draw
+          // call either way.
           dummy.position.set(x, 0, y);
           dummy.rotation.set(0, 0, 0);
           dummy.scale.set(1, 1, 1);
@@ -312,16 +316,6 @@ export class TerrainRenderer {
 
     this.floorMesh.computeBoundingSphere();
     this.wallMesh.computeBoundingSphere();
-  }
-
-  /** True when all four neighbours are solid, so this block is invisible. */
-  private isFullyEnclosed(x: number, y: number): boolean {
-    return (
-      this.map.isSolidAt(x - 1, y) &&
-      this.map.isSolidAt(x + 1, y) &&
-      this.map.isSolidAt(x, y - 1) &&
-      this.map.isSolidAt(x, y + 1)
-    );
   }
 
   /** Per-frame animation: tag pulse and a slow flicker across emissive surfaces. */
