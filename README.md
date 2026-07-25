@@ -12,8 +12,9 @@ run on anything with a browser.
 
 ## Play it
 
-**Web (all platforms, nothing to install):** open the deployed build, or run it
-locally in two commands. It works on Windows, macOS, Linux, Android and iOS —
+**Web (all platforms, nothing to install):** play it at
+**<https://joko1977-ui.github.io/DungeonKeeperReborn/>**, or run it locally in
+two commands. It works on Windows, macOS, Linux, Android and iOS —
 anything with a modern browser. On desktop Chrome/Edge and on Android you can
 also use *Install app* to get it as a standalone, offline-capable PWA.
 
@@ -43,8 +44,10 @@ npm run build
 tauri build          # bundles .msi/.exe, .dmg, .deb and .AppImage
 ```
 
-CI builds all three desktop platforms and the web bundle on every push; see
-`.github/workflows/build.yml`.
+CI builds all three desktop platforms and the web bundle on every push, and
+deploys the web build to GitHub Pages from the default branch; see
+`.github/workflows/build.yml`. Pages must be switched on once, under
+**Settings → Pages → Source: GitHub Actions**.
 
 ## Controls
 

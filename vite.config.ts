@@ -29,7 +29,11 @@ export default defineConfig({
         description: 'Carve a dungeon, lure creatures, repel the heroes.',
         theme_color: '#0a0705',
         background_color: '#0a0705',
-        display: 'fullscreen',
+        // iOS ignores this and uses the apple-mobile-web-app-* meta tags, but
+        // Android honours it: fullscreen where supported, standalone as the
+        // fallback, so the game never opens inside browser chrome.
+        display: 'standalone',
+        display_override: ['fullscreen', 'standalone'],
         orientation: 'landscape',
         start_url: './',
         icons: [
