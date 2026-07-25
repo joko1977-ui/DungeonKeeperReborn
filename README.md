@@ -49,8 +49,12 @@ embeds them at compile time.
 
 CI builds all three desktop platforms and the web bundle on every push, and
 deploys the web build to GitHub Pages from the default branch; see
-`.github/workflows/build.yml`. Pages must be switched on once, under
-**Settings → Pages → Source: GitHub Actions**.
+`.github/workflows/build.yml`.
+
+Pages needs switching on **once, by hand**: **Settings → Pages → Source →
+GitHub Actions**. The workflow token is permitted to publish to an existing
+Pages site but not to create one, so this cannot be automated from CI; the
+deploy job checks for it and fails with that instruction if it is missing.
 
 ## Controls
 
