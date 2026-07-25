@@ -1,22 +1,42 @@
 import * as THREE from 'three';
 
 /**
- * The keeper's-eye camera.
+ * The keeper's-eye camera. Strictly isometric.
  *
- * Orbits a point on the dungeon floor, the way the original's view does: you
- * push the focus around the map, spin it, and drop closer to the ground. All
- * values are smoothed toward a target so a keypress produces a glide rather
- * than a jolt.
+ * The projection is orthographic and the pitch is welded to 30 degrees, so the
+ * dungeon is drawn the way an isometric game draws it: no perspective
+ * convergence, no tilting, a tile the same size at the top of the screen as at
+ * the bottom. You push the focus around the map and you zoom; you do not tumble
+ * the view.
+ *
+ * Rotation is quarter turns only, and it is not a free-look — it is the
+ * isometric convention of turning the board so you can see behind a wall.
+ * Snapping to the four diagonals is what keeps every tile edge landing on the
+ * same screen angle, which is the entire point of the projection.
  *
  * Left and right mouse buttons are deliberately untouched — those belong to the
- * Hand of Evil. Rotation lives on the middle button.
+ * Hand of Evil. Rotation lives on the middle button and on Q/E.
  *
  * Touch splits the same way: **one finger belongs to the Hand of Evil, two
  * fingers drive the camera.** Tagging a slab of wall is a drag, and it is the
- * thing you do most, so it gets the single finger; panning, pinching and
- * twisting all live on the two-finger gesture, which is where a pinch already
- * had to be anyway.
+ * thing you do most, so it gets the single finger; panning and pinching live on
+ * the two-finger gesture, which is where a pinch already had to be anyway.
  */
+
+/** Isometric pitch: 30 degrees above the floor, fixed. */
+export const ISO_PITCH = Math.PI / 6;
+
+/**
+ * How far back the eye is parked.
+ *
+ * Meaningless to the projection — an orthographic camera draws things the same
+ * size however far away they are — but it fixes where the scene sits in view
+ * depth, which is what the fog is measured against.
+ */
+export const ISO_STANDOFF = 80;
+
+/** The four viewing corners. Rotation steps between them and nowhere else. */
+const YAW_STEP = Math.PI / 2;
 export class CameraController {
   /** Point on the floor the camera looks at. */
   readonly target = new THREE.Vector3(0, 0, 0);
@@ -24,12 +44,14 @@ export class CameraController {
   private readonly desiredTarget = new THREE.Vector3();
   private yaw = Math.PI * 0.25;
   private desiredYaw = Math.PI * 0.25;
-  private pitch = 0.95;
-  private desiredPitch = 0.95;
+  /** Fixed. Kept as a field only so the projection maths reads normally. */
+  private readonly pitch = ISO_PITCH;
   private distance = 22;
   private desiredDistance = 22;
+  /** Accumulated middle-drag, so a drag has to travel before the view turns. */
+  private rotateAccum = 0;
 
-  private readonly camera: THREE.PerspectiveCamera;
+  private readonly camera: THREE.OrthographicCamera;
   private readonly element: HTMLElement;
   private readonly bounds: { w: number; h: number };
 
@@ -46,12 +68,10 @@ export class CameraController {
   private pinchAngle = 0;
   private pinchCentre = { x: 0, y: 0 };
 
-  static readonly MIN_DISTANCE = 6;
+  static readonly MIN_DISTANCE = 8;
   static readonly MAX_DISTANCE = 46;
-  static readonly MIN_PITCH = 0.42;
-  static readonly MAX_PITCH = 1.42;
 
-  constructor(camera: THREE.PerspectiveCamera, element: HTMLElement, mapW: number, mapH: number) {
+  constructor(camera: THREE.OrthographicCamera, element: HTMLElement, mapW: number, mapH: number) {
     this.camera = camera;
     this.element = element;
     this.bounds = { w: mapW, h: mapH };
@@ -130,15 +150,19 @@ export class CameraController {
 
     if (!this.rotating) return;
     const dx = e.clientX - this.lastPointer.x;
-    const dy = e.clientY - this.lastPointer.y;
     this.lastPointer = { x: e.clientX, y: e.clientY };
-    this.desiredYaw -= dx * 0.006;
-    this.desiredPitch = THREE.MathUtils.clamp(
-      this.desiredPitch - dy * 0.005,
-      CameraController.MIN_PITCH,
-      CameraController.MAX_PITCH,
-    );
+    // A drag accumulates until it has earned a quarter turn. Free rotation is
+    // deliberately not available: an isometric projection only stays isometric
+    // while the view sits on one of its four corners.
+    this.rotateAccum -= dx;
+    while (this.rotateAccum > 120) { this.rotateAccum -= 120; this.turn(1); }
+    while (this.rotateAccum < -120) { this.rotateAccum += 120; this.turn(-1); }
   };
+
+  /** Turn the board a quarter, the only rotation there is. */
+  turn(steps: number): void {
+    this.desiredYaw += steps * YAW_STEP;
+  }
 
   private onPointerUp = (e: PointerEvent): void => {
     if (e.pointerType === 'touch') {
@@ -153,6 +177,9 @@ export class CameraController {
   private onKeyDown = (e: KeyboardEvent): void => {
     // Don't steal keys while the player is typing somewhere.
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.repeat) return;
+    if (e.code === 'KeyQ') { this.turn(1); return; }
+    if (e.code === 'KeyE') { this.turn(-1); return; }
     this.keys.add(e.code);
   };
 
@@ -192,10 +219,13 @@ export class CameraController {
         CameraController.MIN_DISTANCE,
         CameraController.MAX_DISTANCE,
       );
+      // Twist accumulates toward a quarter turn rather than rotating freely.
       let dAngle = angle - this.pinchAngle;
       while (dAngle > Math.PI) dAngle -= Math.PI * 2;
       while (dAngle < -Math.PI) dAngle += Math.PI * 2;
-      this.desiredYaw -= dAngle;
+      this.rotateAccum -= dAngle * 260;
+      while (this.rotateAccum > 120) { this.rotateAccum -= 120; this.turn(1); }
+      while (this.rotateAccum < -120) { this.rotateAccum += 120; this.turn(-1); }
     }
     this.pinchDistance = d;
     this.pinchAngle = angle;
@@ -227,7 +257,6 @@ export class CameraController {
     const k = 1 - Math.exp(-dt * 11);
     this.target.lerp(this.desiredTarget, k);
     this.yaw += (this.desiredYaw - this.yaw) * k;
-    this.pitch += (this.desiredPitch - this.pitch) * k;
     this.distance += (this.desiredDistance - this.distance) * k;
 
     this.applyToCamera();
@@ -253,8 +282,7 @@ export class CameraController {
     }
 
     // Q/E spin the view, as Ctrl+arrows did in the original.
-    if (this.keys.has('KeyQ')) this.desiredYaw += dt * 1.6;
-    if (this.keys.has('KeyE')) this.desiredYaw -= dt * 1.6;
+    // Q and E step the board a quarter turn on the press, not while held.
     if (this.keys.has('PageUp')) {
       this.desiredDistance = Math.max(CameraController.MIN_DISTANCE, this.desiredDistance - dt * 22);
     }
@@ -288,13 +316,22 @@ export class CameraController {
   }
 
   private applyToCamera(): void {
+    // The eye is parked well back and the frustum is sized by `zoom`. With an
+    // orthographic camera the distance to the subject does not change how big it
+    // looks, so the standoff exists only to keep the whole dungeon in front of
+    // the near plane; zoom is what "getting closer" means here.
     const cosPitch = Math.cos(this.pitch);
+    const standoff = ISO_STANDOFF;
     this.camera.position.set(
-      this.target.x + Math.sin(this.yaw) * cosPitch * this.distance,
-      this.target.y + Math.sin(this.pitch) * this.distance,
-      this.target.z + Math.cos(this.yaw) * cosPitch * this.distance,
+      this.target.x + Math.sin(this.yaw) * cosPitch * standoff,
+      this.target.y + Math.sin(this.pitch) * standoff,
+      this.target.z + Math.cos(this.yaw) * cosPitch * standoff,
     );
     this.camera.lookAt(this.target);
+    // Frustum half-height in world units, from the same distance the rest of
+    // the game reasons about.
+    this.camera.zoom = 1 / Math.max(1, this.distance * 0.5);
+    this.camera.updateProjectionMatrix();
   }
 
   /** Current yaw, so the minimap can rotate its view cone to match. */

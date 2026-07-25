@@ -101,11 +101,18 @@ const ROCK: MaterialRecipe = {
     return clamp01(cells * 0.65 + fbm(x * 8, y * 8, 4, 8, rnd) * 0.45);
   },
   color: (h, x, y, rnd) => {
+    // Volcanic basalt, to the brief: #2A1F1A at the low end, #3D2E28 at the
+    // high. Warm-dark rather than neutral grey — clean medieval stone is
+    // explicitly off the table.
     const grit = fbm(x * 26, y * 26, 3, 26, rnd);
-    const v = lerp(0.20, 0.46, h) * lerp(0.82, 1.12, grit);
-    return [v * 1.0, v * 0.94, v * 0.86];
+    const t = clamp01(h * lerp(0.86, 1.14, grit));
+    return [
+      lerp(0.165, 0.239, t),
+      lerp(0.122, 0.180, t),
+      lerp(0.102, 0.157, t),
+    ];
   },
-  roughness: (h) => lerp(0.98, 0.72, h),
+  roughness: (h) => lerp(0.90, 0.75, h),
 };
 
 /** Packed earth: what imps dig through. Warmer and softer than rock. */
@@ -115,14 +122,42 @@ const EARTH: MaterialRecipe = {
     fbm(x * 6, y * 6, 4, 6, rnd) * 0.7 + cellular(x * 7, y * 7, 7, rnd) * 0.35,
   ),
   color: (h, x, y, rnd) => {
+    // Basalt with organic tissue growing through it. The veins are a separate
+    // noise band rather than a tint, so the flesh reads as something living in
+    // the rock rather than as discoloured stone.
     const grit = fbm(x * 30, y * 30, 2, 30, rnd);
-    const v = lerp(0.16, 0.40, h) * lerp(0.85, 1.10, grit);
-    // Occasional pale pebbles catching the torchlight.
-    const pebble = cellular(x * 18, y * 18, 18, rnd) < 0.12 ? 1.5 : 1;
-    return [v * 1.16 * pebble, v * 0.86 * pebble, v * 0.60 * pebble];
+    const t = clamp01(h * lerp(0.85, 1.12, grit));
+    const stone: [number, number, number] = [
+      lerp(0.165, 0.239, t), lerp(0.122, 0.180, t), lerp(0.102, 0.157, t),
+    ];
+    const vein = fbm(x * 7 + 11.3, y * 7, 4, 7, rnd);
+    const flesh = clamp01((vein - 0.52) / 0.22);
+    if (flesh <= 0) return stone;
+    // #4A1F1F to #6B2A2A.
+    const f = clamp01(fbm(x * 19, y * 19, 2, 19, rnd));
+    const meat: [number, number, number] = [
+      lerp(0.290, 0.420, f), lerp(0.122, 0.165, f), lerp(0.122, 0.165, f),
+    ];
+    return [
+      lerp(stone[0], meat[0], flesh),
+      lerp(stone[1], meat[1], flesh),
+      lerp(stone[2], meat[2], flesh),
+    ];
   },
-  roughness: () => 0.96,
+  // Flesh is wetter than stone: 0.4-0.6 where the tissue is, 0.9 where it is not.
+  roughness: () => 0.88,
+  emissive: (_h, x, y) => {
+    // Subsurface red under the tissue. Very low — this is light bleeding
+    // through something thin, not a lamp.
+    const rnd = makeRandom(EARTH_SEED);
+    const vein = fbm(x * 7 + 11.3, y * 7, 4, 7, rnd);
+    const flesh = clamp01((vein - 0.52) / 0.22);
+    return [flesh * 0.22, flesh * 0.03, flesh * 0.03];
+  },
 };
+
+/** Seed used by the earth recipe's emissive pass, so both passes agree. */
+const EARTH_SEED = 4;
 
 /** Gold seam: dark rock threaded with bright metal. */
 const GOLD: MaterialRecipe = {
@@ -209,12 +244,45 @@ const FLAGSTONE: MaterialRecipe = {
   },
   color: (h, x, y, rnd) => {
     const grit = fbm(x * 22, y * 22, 3, 22, rnd);
-    const v = lerp(0.22, 0.52, h) * lerp(0.86, 1.12, grit);
-    // Warm the stone slightly; a neutral grey floor under cool fill goes blue.
-    return [v * 1.06, v * 0.99, v * 0.88];
+    const t = clamp01(h * lerp(0.86, 1.12, grit));
+    const stone: [number, number, number] = [
+      lerp(0.102, 0.239, t), lerp(0.078, 0.180, t), lerp(0.071, 0.157, t),
+    ];
+    // Molten rock showing through the cracks between the flags.
+    const glow = crackGlow(x, y, rnd);
+    if (glow <= 0) return stone;
+    return [
+      lerp(stone[0], 1.0, glow),
+      lerp(stone[1], 0.42, glow),
+      lerp(stone[2], 0.0, glow),
+    ];
   },
-  roughness: (h) => lerp(0.97, 0.70, h),
+  roughness: (h) => lerp(0.90, 0.72, h),
+  emissive: (_h, x, y) => {
+    const glow = crackGlow(x, y, makeRandom(FLAGSTONE_SEED));
+    return [glow * 2.4, glow * 0.72, glow * 0.06];
+  },
 };
+
+/** Seed the flagstone recipe uses, shared between its colour and glow passes. */
+const FLAGSTONE_SEED = 8;
+
+/**
+ * How molten a point on the floor is.
+ *
+ * The brief asks for cracked black stone with glowing cracks revealing molten
+ * rock underneath. This picks out the thin ridge lines of a cellular field —
+ * the cell *borders*, not the cells — so the glow runs along fractures rather
+ * than pooling in blobs.
+ */
+function crackGlow(x: number, y: number, rnd: (n: number) => number): number {
+  const c = cellular(x * 3.5, y * 3.5, 4, rnd);
+  // Only the deepest part of each fracture lights up, and not every fracture:
+  // a floor lit along every seam reads as a circuit board.
+  const ridge = clamp01((0.13 - c) / 0.13);
+  const patchy = clamp01((fbm(x * 2.5 + 5.7, y * 2.5, 3, 3, rnd) - 0.42) / 0.3);
+  return ridge * patchy;
+}
 
 /** Treasury floor: flagstone under a scatter of coins. */
 const TREASURY: MaterialRecipe = {
@@ -339,18 +407,21 @@ const LAVA: MaterialRecipe = {
   name: 'lava',
   height: (x, y, rnd) => clamp01(cellular(x * 5, y * 5, 5, rnd) * 1.3),
   color: (h) => {
-    if (h < 0.22) {
-      const t = clamp01(h / 0.22);
-      return [lerp(1.0, 0.85, t), lerp(0.75, 0.25, t), lerp(0.18, 0.05, t)];
+    if (h < 0.24) {
+      // Molten: #FF8C00 at the hottest through #FF4500 as it cools.
+      const t = clamp01(h / 0.24);
+      return [1.0, lerp(0.549, 0.271, t), lerp(0.0, 0.0, t)];
     }
-    const v = lerp(0.16, 0.05, clamp01((h - 0.22) / 0.78));
-    return [v * 1.4, v * 0.9, v * 0.75];
+    // Crust: basalt again, so lava reads as the same rock having melted.
+    const v = clamp01((h - 0.24) / 0.76);
+    return [lerp(0.239, 0.140, v), lerp(0.180, 0.102, v), lerp(0.157, 0.086, v)];
   },
-  roughness: (h) => lerp(0.4, 0.95, h),
+  // Near-mirror where it is molten, per the brief's 0.1-0.2.
+  roughness: (h) => (h < 0.24 ? lerp(0.10, 0.20, h / 0.24) : lerp(0.6, 0.9, h)),
   emissive: (h) => {
-    if (h > 0.28) return [0.02, 0.004, 0];
-    const t = 1 - clamp01(h / 0.28);
-    return [t * 2.6, t * 0.85, t * 0.12];
+    if (h > 0.3) return [0.03, 0.006, 0];
+    const t = 1 - clamp01(h / 0.3);
+    return [t * 3.4, t * 1.05, t * 0.10];
   },
 };
 

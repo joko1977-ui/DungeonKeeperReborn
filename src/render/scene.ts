@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { ISO_STANDOFF } from '../input/cameraController';
 
 /**
  * Final colour grade.
@@ -18,11 +19,13 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 const GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uSaturation: { value: 1.28 },
-    uContrast: { value: 1.14 },
-    uLift: { value: new THREE.Vector3(0.008, 0.012, 0.026) },
-    uGain: { value: new THREE.Vector3(1.05, 1.0, 0.97) },
-    uVignette: { value: 0.42 },
+    uSaturation: { value: 1.16 },
+    uContrast: { value: 1.18 },
+    // Lift is warm. It used to be blue, which put a cold cast into every shadow
+    // in the dungeon — the exact thing the art direction forbids.
+    uLift: { value: new THREE.Vector3(0.016, 0.007, 0.003) },
+    uGain: { value: new THREE.Vector3(1.06, 0.99, 0.94) },
+    uVignette: { value: 0.5 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -43,7 +46,7 @@ const GRADE_SHADER = {
       vec4 texel = texture2D( tDiffuse, vUv );
       vec3 c = texel.rgb;
 
-      // Lift and gain: cool the shadows, warm the highlights.
+      // Lift and gain: warm the shadows toward ember, cool nothing.
       c = c * uGain + uLift * ( 1.0 - c );
 
       // Contrast about mid grey.
@@ -90,9 +93,9 @@ function buildDungeonEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const count = geo.attributes.position.count;
   const colors = new Float32Array(count * 3);
   const pos = geo.attributes.position;
-  const up = new THREE.Color(0x101830).convertSRGBToLinear();
-  const horizon = new THREE.Color(0xa85a1e).convertSRGBToLinear();
-  const down = new THREE.Color(0x5e3014).convertSRGBToLinear();
+  const up = new THREE.Color(0x14061c).convertSRGBToLinear();
+  const horizon = new THREE.Color(0xff6b00).convertSRGBToLinear();
+  const down = new THREE.Color(0x7a2c08).convertSRGBToLinear();
   const c = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const y = pos.getY(i) / 10;
@@ -119,7 +122,7 @@ function buildDungeonEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
     const a = (i / 3) * Math.PI * 2;
     const flame = new THREE.Mesh(
       new THREE.SphereGeometry(1.5, 10, 8),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8a3a).convertSRGBToLinear() }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8c00).convertSRGBToLinear() }),
     );
     flame.position.set(Math.cos(a) * 7, -0.6, Math.sin(a) * 7);
     scene.add(flame);
@@ -189,7 +192,7 @@ export function detectQuality(): QualitySettings {
  */
 export class SceneRig {
   readonly scene = new THREE.Scene();
-  readonly camera: THREE.PerspectiveCamera;
+  readonly camera: THREE.OrthographicCamera;
   readonly renderer: THREE.WebGLRenderer;
   readonly composer: EffectComposer;
 
@@ -216,7 +219,7 @@ export class SceneRig {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.62;
+    this.renderer.toneMappingExposure = 1.7;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -229,33 +232,47 @@ export class SceneRig {
     // Carries most of the light on creatures, which are the thing you actually
     // look at. Terrain materials pull their own intensity down so the walls do
     // not wash out with it.
-    this.scene.environmentIntensity = 1.15;
+    this.scene.environmentIntensity = 0.85;
 
-    this.scene.background = new THREE.Color(0x06060e);
-    // Exponential fog swallows the far side of the map — you only ever see
-    // your own lit corner. Tinted slightly blue rather than neutral black so
-    // distance reads as depth instead of as an absence of geometry.
-    this.scene.fog = new THREE.FogExp2(0x0a0c18, 0.026);
+    this.scene.background = new THREE.Color(0x080402);
+    // Linear fog, banded around where the dungeon actually sits in view depth.
+    //
+    // Exponential fog is wrong under an orthographic camera: density is measured
+    // from the eye, and the eye is parked eighty units back regardless of zoom,
+    // so every tile came out at 99% fog and the screen went black. Linear fog
+    // anchored to the standoff fogs by *scene* depth, which is the thing worth
+    // cueing. Tinted with the lava, so distance reads as smoke lit from below.
+    this.scene.fog = new THREE.Fog(0x1a0a04, ISO_STANDOFF - 14, ISO_STANDOFF + 30);
 
-    this.camera = new THREE.PerspectiveCamera(
-      52, window.innerWidth / window.innerHeight, 0.35, 220,
-    );
+    // Orthographic, because the brief is a strictly isometric game and a
+    // perspective camera is not one: parallel walls converge, a tile at the top
+    // of the screen is smaller than a tile at the bottom, and the tile grid
+    // stops being a grid. The frustum is sized in `onResize` and scaled by the
+    // camera controller's zoom.
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, ISO_STANDOFF + 90);
     this.camera.position.set(0, 18, 18);
+    this.sizeCamera(window.innerWidth, window.innerHeight);
 
     /* ---- lighting ---- */
     //
     // The scene lives or dies on warm/cool separation. Fill is cool and dim so
     // unlit stone reads as blue shadow rather than brown mud; everything warm
     // comes from fire. Flat neutral fill was what made this look muddy.
-    const ambient = new THREE.AmbientLight(0x2a3558, 1.30);
+    // Every light in this dungeon is fire or magic. The fill used to be a cool
+    // blue, which is the one thing the art direction rules out outright: cool
+    // daylight makes a cave read as an overcast quarry. Ambient is near-black,
+    // and what little of it there is comes from the lava.
+    const ambient = new THREE.AmbientLight(0x3d1e10, 0.5);
     this.scene.add(ambient);
 
-    const hemi = new THREE.HemisphereLight(0x3a5686, 0x4a2c18, 1.45);
+    // Warm from below — bounce off molten rock — and a faint magical wash from
+    // above rather than a sky.
+    const hemi = new THREE.HemisphereLight(0x3a1a44, 0x7a3410, 0.9);
     this.scene.add(hemi);
 
-    // A cold key from high above: enough to read silhouettes and cast shadows,
-    // never enough to make the place feel outdoors.
-    this.sun = new THREE.DirectionalLight(0x8fa8e8, 0.85);
+    // The key is firelight from high up, around 2000 K. It exists to read
+    // silhouettes and cast shadows; it must never suggest a sky.
+    this.sun = new THREE.DirectionalLight(0xff8c3a, 0.85);
     this.sun.position.set(14, 30, 10);
     this.sun.castShadow = quality.shadows;
     if (quality.shadows) {
@@ -304,10 +321,20 @@ export class SceneRig {
     window.addEventListener('resize', this.onResize);
   }
 
+  /** Frustum bounds for the current viewport. Zoom does the rest. */
+  private sizeCamera(w: number, h: number): void {
+    const half = 1;
+    const aspect = w / Math.max(1, h);
+    this.camera.left = -half * aspect;
+    this.camera.right = half * aspect;
+    this.camera.top = half;
+    this.camera.bottom = -half;
+    this.camera.updateProjectionMatrix();
+  }
+
   private onResize = (): void => {
     const w = window.innerWidth, h = window.innerHeight;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.sizeCamera(w, h);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);

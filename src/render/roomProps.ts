@@ -31,10 +31,10 @@ function tileRandom(tile: number, salt: number): number {
 function buildGoldPile(): THREE.BufferGeometry {
   const b = new PartBuilder();
   // Stacked discs of decreasing radius read as a heap from any angle.
-  b.cylinder(0.30, 0.34, 0.06, 0, 0.03, 0, 0xe0a838);
-  b.cylinder(0.23, 0.28, 0.06, 0.02, 0.09, -0.01, 0xf0c04a);
-  b.cylinder(0.15, 0.20, 0.06, -0.02, 0.15, 0.02, 0xffd45c);
-  b.cylinder(0.07, 0.12, 0.05, 0.01, 0.20, 0, 0xffe890);
+  b.cylinder(0.30, 0.34, 0.06, 0, 0.03, 0, 0xe6b800);
+  b.cylinder(0.23, 0.28, 0.06, 0.02, 0.09, -0.01, 0xffd700);
+  b.cylinder(0.15, 0.20, 0.06, -0.02, 0.15, 0.02, 0xffd700);
+  b.cylinder(0.07, 0.12, 0.05, 0.01, 0.20, 0, 0xffec8b);
   // A few loose coins spilled around the base.
   b.cylinder(0.055, 0.055, 0.018, -0.28, 0.01, 0.20, 0xf0c04a, 0, 0, 0.2);
   b.cylinder(0.055, 0.055, 0.018, 0.26, 0.01, -0.24, 0xffd45c, 0, 0, -0.15);
@@ -208,6 +208,7 @@ export class RoomPropRenderer {
 
   private readonly map: TileMap;
   private readonly material: THREE.MeshStandardMaterial;
+  private readonly goldMaterial: THREE.MeshStandardMaterial;
   private readonly heartMaterial: THREE.MeshStandardMaterial;
   private readonly portalMaterial: THREE.MeshStandardMaterial;
   /** Both centrepieces light their own chamber. */
@@ -243,6 +244,16 @@ export class RoomPropRenderer {
       metalness: 0.42,
       envMapIntensity: 1.15,
     });
+    // Gold gets its own material: fully metallic at roughness 0.2, which is what
+    // makes a treasure pile read as treasure rather than as yellow gravel.
+    this.goldMaterial = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.2,
+      metalness: 1.0,
+      envMapIntensity: 2.4,
+      emissive: new THREE.Color(0x2a1a00),
+      emissiveIntensity: 1,
+    });
     // The heart and the portal each need their OWN emissive colour. Sharing
     // one material with white emissive drowned the per-instance keeper colour
     // and rendered the heart as a white blob.
@@ -272,7 +283,8 @@ export class RoomPropRenderer {
       [RoomType.Bridge, buildBridgeRail()],
     ];
     for (const [room, geo] of tiled) {
-      const mesh = new THREE.InstancedMesh(geo, this.material, MAX_PROPS);
+      const material = room === RoomType.Treasury ? this.goldMaterial : this.material;
+      const mesh = new THREE.InstancedMesh(geo, material, MAX_PROPS);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
@@ -496,6 +508,7 @@ export class RoomPropRenderer {
       m.geometry.dispose();
     }
     this.material.dispose();
+    this.goldMaterial.dispose();
     this.heartMaterial.dispose();
     this.portalMaterial.dispose();
   }

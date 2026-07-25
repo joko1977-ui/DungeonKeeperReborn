@@ -50,7 +50,7 @@ export const CREATURE_SPECS: Record<CreatureType, CreatureSpec> = {
   [CreatureType.Imp]: S({
     type: CreatureType.Imp, name: 'Imp', maxHp: 60, strength: 4, defense: 2,
     speed: 3.4, wage: 0, flying: false, worker: true, jobs: [],
-    appetite: 900, scale: 0.62, color: 0xc4553a, accent: 0x8f2f1c, attractedBy: null,
+    appetite: 900, scale: 0.62, color: 0xc41e3a, accent: 0x8b0000, attractedBy: null,
   }),
   [CreatureType.Fly]: S({
     type: CreatureType.Fly, name: 'Fly', maxHp: 50, strength: 6, defense: 2,

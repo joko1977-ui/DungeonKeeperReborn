@@ -76,7 +76,7 @@ export class CreatureRenderer {
       // torches left them as silhouettes. The baked environment carries a warm
       // floor bounce; leaning on it here lifts the creatures without flattening
       // the walls, which keep their own much lower intensity.
-      envMapIntensity: 2.1,
+      envMapIntensity: 1.15,
     });
     // Armour is metal and must behave like metal: high metalness, low
     // roughness, and it picks up the environment. Sharing the body material
@@ -93,7 +93,8 @@ export class CreatureRenderer {
       envMapIntensity: 1.8,
     });
     this.eyeMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffd08a,
+      // Yellow-orange and lit from inside, per the art direction.
+      color: 0xffb020,
       // Explicit, even though the eye geometry's own colours are plain white:
       // three only feeds instanceColor through to the fragment stage when
       // USE_COLOR is defined, and that comes from this flag.

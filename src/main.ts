@@ -9,6 +9,7 @@ import { CameraController } from './input/cameraController';
 import { HandOfEvil, Tool } from './input/hand';
 import { CreatureRenderer } from './render/creatureRenderer';
 import { DeviceRenderer } from './render/deviceRenderer';
+import { Atmosphere } from './render/atmosphere';
 import { LandmarkRenderer } from './render/landmarks';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
@@ -45,6 +46,7 @@ const creatureRenderer = new CreatureRenderer();
 const roomProps = new RoomPropRenderer(game.map);
 const devices = new DeviceRenderer(game.map);
 const landmarks = new LandmarkRenderer(game.map);
+const atmosphere = new Atmosphere();
 const torches = new TorchSystem(game.map);
 const particles = new ParticleSystem();
 
@@ -53,6 +55,7 @@ rig.scene.add(creatureRenderer.group);
 rig.scene.add(roomProps.group);
 rig.scene.add(devices.group);
 rig.scene.add(landmarks.group);
+rig.scene.add(atmosphere.group);
 rig.scene.add(torches.group);
 rig.scene.add(particles.points);
 
@@ -201,6 +204,7 @@ function frame(): void {
   devices.update(time, game.gasTiles());
   landmarks.syncIfDirty();
   landmarks.update(time, camera.getDistance());
+  atmosphere.update(dt, camera.target, time);
   torches.syncIfDirty();
   torches.update(time, camera.target);
   creatureRenderer.update(game.creatures, time, paused ? 0 : dt);
@@ -243,6 +247,9 @@ function frame(): void {
     if (clock.elapsedTime > 6) {
       const change = rig.considerPerformance(fps);
       if (change) game.notify(change);
+      // The air is the cheapest thing to thin out, so it goes first — before
+      // bloom, before shadows, before resolution.
+      atmosphere.setDensity(fps > 45 ? 1 : fps > 30 ? 0.6 : fps > 20 ? 0.3 : 0);
     }
   }
 
@@ -306,6 +313,7 @@ if (import.meta.hot) {
     roomProps.dispose();
     devices.dispose();
     landmarks.dispose();
+    atmosphere.dispose();
     creatureRenderer.dispose();
     torches.dispose();
     particles.dispose();

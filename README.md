@@ -67,7 +67,7 @@ reproduced exactly.
 | **Left click** on your creature | Snatch it into the Hand of Evil. Click again to drop it on any floor you own. |
 | **Right click** on a creature | Slap it — it works faster, takes a little damage, and resents you. |
 | **Right click** on a wall | Clear an excavation tag. |
-| **Middle drag**, **Q** / **E** | Rotate the view. |
+| **Middle drag**, **Q** / **E** | Turn the board a quarter. The projection is strictly isometric, so the view sits on one of four corners and nowhere between. |
 | **Wheel**, **PgUp/PgDn** | Zoom. |
 | **WASD** / arrows / screen edge | Move the view. |
 | **R** / **F** / **T** / **C** | Rooms, Spells, Workshop and Creatures tabs. **1–9** picks from the open tab. |
@@ -184,6 +184,19 @@ the route goes through, and an intruder that reaches a door it does not own stop
 and breaks it down. The panel visibly darkens and leans as its integrity drops,
 so you can see which door is about to go.
 
+## Look
+
+Strictly isometric: an orthographic camera welded to a 30-degree pitch, turning
+in quarter steps only. Parallel walls stay parallel and a tile is the same size
+at the top of the screen as at the bottom, which is the whole point of the
+projection and the thing a perspective camera cannot give you.
+
+Everything down here is lit by fire or by magic. There is no cool fill and no
+daylight: volcanic basalt walls with organic tissue growing through them, black
+flagstone cracked open over molten rock, gold at full metalness, and rune-lit
+beacons in cyan and magenta over the landmarks. Embers rise, ash falls, dust
+hangs in the shafts of light.
+
 ## Sound
 
 All of it is synthesised in the browser. No audio files ship with the game, for
@@ -261,6 +274,7 @@ src/
     roomProps.ts       room furniture — heaps, nests, dummies, anvils, the Heart
     deviceRenderer.ts  traps, doors and the gas they leave behind
     creatureRank.ts    armour and horns earned by levelling up
+    atmosphere.ts      embers, ash, dust motes and god rays
     landmarks.ts       room labels and beacons over the places that matter
     effects.ts         torches, dynamic lights, particles
     scene.ts           renderer, lighting rig, post-processing

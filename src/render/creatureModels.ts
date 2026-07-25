@@ -191,47 +191,101 @@ function tusks(
 
 /* --------------------------------------------------------------- worker -- */
 
+/**
+ * The imp: the dungeon's put-upon workforce.
+ *
+ * Built to the art direction rather than to anatomy — stocky and muscular but
+ * cartoonishly proportioned, with a head and hands far too big for the body.
+ * That exaggeration is the whole personality: a realistically proportioned imp
+ * is a small demon, and a small demon is not funny. Roughly a metre tall against
+ * a 1.7 m creature, which is why it reads as staff rather than as a threat.
+ *
+ * The face carries it: a wide underbite full of teeth, a heavy brow, and two
+ * deliberately mismatched eyes. Perfect symmetry is what makes a stylised face
+ * look like a prop.
+ */
 function buildImp(color: number, accent: number): CreatureModel {
   const b = new PartBuilder();
-  const belly = 0xe08a5a;
-  // Hunched, top-heavy little worker: shoulders forward, spine curved.
-  b.sphere(0.31, 0, 0.36, -0.02, color, 1.05, 0.95, 1.0);
-  b.sphere(0.24, 0, 0.30, 0.16, belly, 1.0, 0.9, 0.75, 7);
-  b.sphere(0.17, -0.24, 0.50, 0, color, 1, 0.9, 1, 7);
-  b.sphere(0.17, 0.24, 0.50, 0, color, 1, 0.9, 1, 7);
-  // Head: cranium, heavy brow, snout and an underbite.
-  b.sphere(0.25, 0, 0.70, 0.05, color, 1.1, 1.0, 1.0);
-  b.box(0.34, 0.07, 0.16, 0, 0.78, 0.16, accent);
-  b.cone(0.13, 0.22, 0, 0.63, 0.24, color, Math.PI / 2, 0, 0, 6);
-  b.sphere(0.11, 0, 0.57, 0.22, belly, 1.2, 0.7, 1, 6);
-  b.cone(0.028, 0.07, -0.055, 0.60, 0.30, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
-  b.cone(0.028, 0.07, 0.055, 0.60, 0.30, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
-  // Big swept ears with a paler inner surface.
-  b.cone(0.10, 0.36, -0.22, 0.82, -0.06, accent, -0.35, 0, 0.95, 5);
-  b.cone(0.10, 0.36, 0.22, 0.82, -0.06, accent, -0.35, 0, -0.95, 5);
-  b.cone(0.055, 0.24, -0.21, 0.81, -0.03, belly, -0.35, 0, 0.95, 4);
-  b.cone(0.055, 0.24, 0.21, 0.81, -0.03, belly, -0.35, 0, -0.95, 4);
-  // Horn nubs, spine ridge and a spade-tipped tail.
-  horns(b, 0.035, 0.10, 0.10, 0.88, 0.02, accent, -0.4, 0.3);
-  dorsalSpines(b, 3, -0.12, -0.08, 0.48, -0.03, 0.035, 0.09, accent);
-  tail(b, 3, 0, 0.30, -0.26, 0.062, 0.11, 0.03, color, accent);
-  // A scrap of loincloth and a work belt.
-  b.box(0.30, 0.16, 0.22, 0, 0.16, 0, 0x6a4630);
-  b.box(0.34, 0.05, 0.26, 0, 0.24, 0, 0x4a3020);
+  // Skin runs bright at the thin parts — ears, fingers — where light would get
+  // through. There is no subsurface term in this material, so the shading is
+  // baked into the vertex colours instead.
+  const thin = 0xe86a55;
+  const belly = 0xd8674a;
+
+  // Torso: barrel-chested and hunched, shoulders rolled forward over the work.
+  b.sphere(0.30, 0, 0.34, -0.02, color, 1.12, 0.92, 1.0);
+  b.sphere(0.23, 0, 0.27, 0.15, belly, 1.05, 0.86, 0.72, 8);
+  // Deltoids: this is a creature that swings a pick all day.
+  b.sphere(0.155, -0.25, 0.46, 0, color, 1, 0.92, 1, 8);
+  b.sphere(0.155, 0.25, 0.46, 0, color, 1, 0.92, 1, 8);
+
+  // Head, deliberately oversized: a third of the whole silhouette.
+  b.sphere(0.28, 0, 0.72, 0.04, color, 1.12, 1.02, 1.0, 10);
+  // Heavy brow ridge, and a blunt snout under it.
+  b.box(0.38, 0.09, 0.18, 0, 0.81, 0.15, accent);
+  b.sphere(0.15, 0, 0.66, 0.20, color, 1.15, 0.8, 1.0, 8);
+  b.sphere(0.09, 0, 0.62, 0.27, thin, 1.3, 0.75, 1, 7);
+  // Nostrils.
+  b.sphere(0.022, -0.045, 0.655, 0.31, 0x5a1f14, 1, 1, 1, 5);
+  b.sphere(0.022, 0.045, 0.655, 0.31, 0x5a1f14, 1, 1, 1, 5);
+
+  // The grin: a wide jaw with an underbite and too many teeth.
+  b.box(0.24, 0.075, 0.15, 0, 0.575, 0.20, accent);
+  for (let i = 0; i < 5; i++) {
+    const t = (i / 4 - 0.5) * 0.19;
+    b.cone(0.021, 0.075, t, 0.625, 0.245, 0xf4ecd6, 0, 0, 0, 4);
+  }
+  // Two tusks from the lower jaw, one longer than the other.
+  b.cone(0.032, 0.13, -0.085, 0.63, 0.235, 0xf4ecd6, -0.25, 0, 0.1, 5);
+  b.cone(0.028, 0.10, 0.085, 0.62, 0.235, 0xf4ecd6, -0.25, 0, -0.1, 5);
+
+  // Ears: big, swept back, and paler where they thin out.
+  b.cone(0.115, 0.42, -0.24, 0.84, -0.05, accent, -0.35, 0, 1.0, 6);
+  b.cone(0.115, 0.42, 0.24, 0.84, -0.05, accent, -0.35, 0, -1.0, 6);
+  b.cone(0.065, 0.30, -0.23, 0.83, -0.02, thin, -0.35, 0, 1.0, 5);
+  b.cone(0.065, 0.30, 0.23, 0.83, -0.02, thin, -0.35, 0, -1.0, 5);
+
+  // Horn nubs, a ridge of spines, and a spade-tipped tail.
+  horns(b, 0.038, 0.12, 0.11, 0.90, 0.02, accent, -0.4, 0.3);
+  dorsalSpines(b, 3, -0.12, -0.08, 0.46, -0.03, 0.035, 0.09, accent);
+  tail(b, 3, 0, 0.28, -0.26, 0.062, 0.11, 0.03, color, accent);
+
+  // Loincloth and a working belt with a pouch.
+  b.box(0.30, 0.17, 0.23, 0, 0.15, 0, 0x5a3a26);
+  b.box(0.34, 0.055, 0.27, 0, 0.235, 0, 0x3d2820);
+  b.box(0.10, 0.10, 0.07, 0.13, 0.20, 0.13, 0x6b4a30);
+
+  // A pickaxe, carried across the back. An imp is never not working, and the
+  // tool is most of what says so at a glance.
+  b.cylinder(0.026, 0.026, 0.62, -0.02, 0.42, -0.19, 0x7a5432, 0.42, 0.5, 0.2, 6);
+  b.box(0.045, 0.05, 0.34, -0.14, 0.70, -0.30, 0x8d949f, 0, 0.5, 0.15);
+  b.cone(0.045, 0.16, -0.14, 0.70, -0.46, 0xacb4c1, Math.PI / 2, 0.5, 0, 5);
+  b.cone(0.045, 0.16, -0.14, 0.70, -0.14, 0xacb4c1, -Math.PI / 2, 0.5, 0, 5);
+
   return {
     body: b.build(),
     limb: (() => {
       const l = new PartBuilder();
-      l.cylinder(0.062, 0.05, 0.20, 0, -0.10, 0, color, 0, 0, 0, 6);
-      l.sphere(0.05, 0, -0.20, 0, color, 1, 1, 1, 6);
-      l.cylinder(0.045, 0.04, 0.16, 0, -0.29, 0.01, color, 0, 0, 0, 6);
-      l.sphere(0.055, 0, -0.38, 0.03, accent, 1.1, 0.7, 1.4, 6);
-      l.cone(0.02, 0.06, -0.03, -0.39, 0.10, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
-      l.cone(0.02, 0.06, 0.03, -0.39, 0.10, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
+      // Thick upper arm, narrow wrist, and a hand far too big for either.
+      l.cylinder(0.068, 0.052, 0.20, 0, -0.10, 0, color, 0, 0, 0, 7);
+      l.sphere(0.052, 0, -0.20, 0, color, 1, 1, 1, 7);
+      l.cylinder(0.048, 0.042, 0.16, 0, -0.29, 0.01, color, 0, 0, 0, 7);
+      l.sphere(0.075, 0, -0.395, 0.03, thin, 1.15, 0.8, 1.35, 8);
+      // Three fingers and a thumb, all claw.
+      for (let i = 0; i < 3; i++) {
+        l.cone(0.022, 0.085, (i - 1) * 0.045, -0.425, 0.10, 0xf4ecd6, -Math.PI / 2, 0, 0, 4);
+      }
+      l.cone(0.020, 0.07, 0.06, -0.40, 0.02, 0xf4ecd6, -Math.PI / 2, 0, -0.6, 4);
       return l.build();
     })(),
-    eyes: eyePair(0.74, 0.22, 0.085, 0.05),
-    limbOffset: new THREE.Vector3(0.15, 0.20, 0),
+    // Mismatched on purpose: one eye a touch bigger and higher than the other.
+    eyes: (() => {
+      const e = new PartBuilder();
+      e.sphere(0.095, -0.115, 0.755, 0.20, 0xffffff, 1, 1, 0.9, 8);
+      e.sphere(0.082, 0.118, 0.742, 0.20, 0xffffff, 1, 1, 0.9, 8);
+      return e.build();
+    })(),
+    limbOffset: new THREE.Vector3(0.16, 0.20, 0),
     flapping: false,
     height: 1.0,
   };
