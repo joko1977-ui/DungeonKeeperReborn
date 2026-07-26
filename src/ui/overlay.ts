@@ -45,12 +45,12 @@ export function showBriefing(
         <dt>Left click</dt><dd>Tag walls for excavation — drag to tag a whole slab</dd>
         <dt>Left click</dt><dd>Snatch up one of your creatures; click again to drop it on your floor</dd>
         <dt>Right click</dt><dd>Slap a creature to hurry it along, or clear an excavation tag</dd>
-        <dt>Middle drag</dt><dd>Turn the board a quarter &nbsp;·&nbsp; <b>Q</b> / <b>E</b> to turn</dd>
+        <dt>Middle drag</dt><dd>Rotate the view &nbsp;·&nbsp; <b>Q</b> / <b>E</b> to spin</dd>
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>
         <dt>R / F / T / C</dt><dd>Rooms, spells, workshop and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
         <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
         <dt>One finger</dt><dd>Tap or drag to tag walls · tap a creature to pick it up · hold to slap</dd>
-        <dt>Two fingers</dt><dd>Drag to move · pinch to zoom · twist to turn a quarter</dd>
+        <dt>Two fingers</dt><dd>Drag to move · pinch to zoom · twist to rotate</dd>
         <dt>Sound</dt><dd>Toggle the mix and the narrator from the top right</dd>
       </dl>
       <p style="font-size:12px;opacity:0.6;margin-top:-4px">

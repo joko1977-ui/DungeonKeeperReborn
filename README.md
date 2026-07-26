@@ -67,7 +67,7 @@ reproduced exactly.
 | **Left click** on your creature | Snatch it into the Hand of Evil. Click again to drop it on any floor you own. |
 | **Right click** on a creature | Slap it — it works faster, takes a little damage, and resents you. |
 | **Right click** on a wall | Clear an excavation tag. |
-| **Middle drag**, **Q** / **E** | Turn the board a quarter. The projection is strictly isometric, so the view sits on one of four corners and nowhere between. |
+| **Middle drag**, **Q** / **E** | Rotate the view freely, and tilt with a vertical drag. |
 | **Wheel**, **PgUp/PgDn** | Zoom. |
 | **WASD** / arrows / screen edge | Move the view. |
 | **R** / **F** / **T** / **C** | Rooms, Spells, Workshop and Creatures tabs. **1–9** picks from the open tab. |
@@ -186,10 +186,14 @@ so you can see which door is about to go.
 
 ## Look
 
-Strictly isometric: an orthographic camera welded to a 30-degree pitch, turning
-in quarter steps only. Parallel walls stay parallel and a tile is the same size
-at the top of the screen as at the bottom, which is the whole point of the
-projection and the thing a perspective camera cannot give you.
+A free orbiting perspective camera, as the original had: push the focus around,
+spin it, tilt it, drop close to the floor. This was locked to a strict
+isometric projection for a while and it was the wrong call — you could not lean
+in to watch a fight or look along a corridor you were digging.
+
+Stylised rather than photoreal: ink outlines from a depth pass, flat blocks of
+colour, and warm firelight against cool shadow. The geometry here is built from
+primitives, and an outline makes that read as a choice instead of a limitation.
 
 Everything down here is lit by fire or by magic. There is no cool fill and no
 daylight: volcanic basalt walls with organic tissue growing through them, black

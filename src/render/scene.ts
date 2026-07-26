@@ -5,7 +5,6 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
-import { ISO_STANDOFF } from '../input/cameraController';
 
 /**
  * Final colour grade.
@@ -107,9 +106,10 @@ const EDGE_SHADER = {
 
     float viewDepth( vec2 uv ) {
       float d = texture2D( tDepth, uv ).x;
-      // Orthographic: depth is already linear in NDC, so this is exact rather
-      // than the usual perspective approximation.
-      return orthographicDepthToViewZ( d, uNear, uFar );
+      // Perspective depth is heavily non-linear; comparing raw buffer values
+      // would put every outline in the first metre of the scene and none
+      // anywhere else.
+      return perspectiveDepthToViewZ( d, uNear, uFar );
     }
 
     void main() {
@@ -264,7 +264,7 @@ export function detectQuality(): QualitySettings {
  */
 export class SceneRig {
   readonly scene = new THREE.Scene();
-  readonly camera: THREE.OrthographicCamera;
+  readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
   readonly composer: EffectComposer;
 
@@ -311,23 +311,15 @@ export class SceneRig {
     this.scene.environmentIntensity = 0.42;
 
     this.scene.background = new THREE.Color(0x070d11);
-    // Linear fog, banded around where the dungeon actually sits in view depth.
-    //
-    // Exponential fog is wrong under an orthographic camera: density is measured
-    // from the eye, and the eye is parked eighty units back regardless of zoom,
-    // so every tile came out at 99% fog and the screen went black. Linear fog
-    // anchored to the standoff fogs by *scene* depth, which is the thing worth
-    // cueing. Tinted with the lava, so distance reads as smoke lit from below.
-    this.scene.fog = new THREE.Fog(0x0e1a20, ISO_STANDOFF - 16, ISO_STANDOFF + 40);
+    // Exponential fog swallows the far side of the map — you only ever see your
+    // own lit corner. Tinted cool, so distance reads as cold depth against the
+    // warm firelight in the foreground rather than as an absence of geometry.
+    this.scene.fog = new THREE.FogExp2(0x0e1a20, 0.026);
 
-    // Orthographic, because the brief is a strictly isometric game and a
-    // perspective camera is not one: parallel walls converge, a tile at the top
-    // of the screen is smaller than a tile at the bottom, and the tile grid
-    // stops being a grid. The frustum is sized in `onResize` and scaled by the
-    // camera controller's zoom.
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, ISO_STANDOFF + 90);
+    this.camera = new THREE.PerspectiveCamera(
+      52, window.innerWidth / window.innerHeight, 0.35, 220,
+    );
     this.camera.position.set(0, 18, 18);
-    this.sizeCamera(window.innerWidth, window.innerHeight);
 
     /* ---- lighting ---- */
     //
@@ -416,20 +408,10 @@ export class SceneRig {
     window.addEventListener('resize', this.onResize);
   }
 
-  /** Frustum bounds for the current viewport. Zoom does the rest. */
-  private sizeCamera(w: number, h: number): void {
-    const half = 1;
-    const aspect = w / Math.max(1, h);
-    this.camera.left = -half * aspect;
-    this.camera.right = half * aspect;
-    this.camera.top = half;
-    this.camera.bottom = -half;
-    this.camera.updateProjectionMatrix();
-  }
-
   private onResize = (): void => {
     const w = window.innerWidth, h = window.innerHeight;
-    this.sizeCamera(w, h);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
