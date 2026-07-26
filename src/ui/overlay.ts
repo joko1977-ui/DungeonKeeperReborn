@@ -42,12 +42,21 @@ export function showBriefing(
           their gate to your heart, which is where a trap earns its keep. The Lord
           of the Land comes last, once you have turned back enough of them.
         </p>
+        <p>
+          Every direction looks like the same brown rock, so it is worth knowing
+          which way is worth the digging: the coloured wedges laid over the wall
+          tops are your dig plan, marking the blocks that lead to each thing the
+          compass is pointing at, and the hovering crystals mark the seams you
+          have found. Press <b>V</b> if you would rather prospect blind.
+        </p>
         ${briefingObjectives(objectives)}`}
       <h3 class="brief-heading">Reading the dungeon</h3>
       <dl class="keys">
         <dt>Warm brown rock</dt><dd>Diggable. Tag it and your imps will cut through</dd>
         <dt>Tall blue-black rock</dt><dd>Bedrock. Nothing digs it — it is the edge of the world</dd>
         <dt>Orange arrows</dt><dd>The way the heroes will come. Put your traps and doors on it</dd>
+        <dt>Coloured wedges</dt><dd>The dig plan: the blocks to cut through to reach what the compass is pointing at, in that thing's own colour. The big arrow is where it leaves ground you have seen</dd>
+        <dt>Hovering crystals</dt><dd>A seam you have found — gold, or blue-white for gems</dd>
         <dt>Shafts of light</dt><dd>A Dungeon Heart or a portal, in its owner's colour</dd>
         <dt>Heroes in…</dt><dd>The raid clock, top right. It turns red when the wave is close</dd>
       </dl>
@@ -59,6 +68,7 @@ export function showBriefing(
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>
         <dt>R / F / T / C</dt><dd>Rooms, spells, workshop and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
         <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
+        <dt>V</dt><dd>Show or hide the dig plan &nbsp;·&nbsp; also the <b>Dig plan</b> button, top right</dd>
         <dt>One finger</dt><dd>Tap or drag to tag walls · tap a creature to pick it up · hold to slap</dd>
         <dt>Two fingers</dt><dd>Drag to move · pinch to zoom · twist to rotate</dd>
         <dt>Sound</dt><dd>Toggle the mix and the narrator from the top right</dd>

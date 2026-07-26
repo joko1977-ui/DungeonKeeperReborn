@@ -12,6 +12,7 @@ import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
 import { DungeonDressing } from './render/dressing';
 import { LandmarkRenderer } from './render/landmarks';
+import { SurveyView } from './render/surveyView';
 import { ThreatPath } from './render/threatPath';
 import { LavaGlow } from './render/lavaGlow';
 import { ParticleSystem, TorchSystem } from './render/effects';
@@ -52,6 +53,7 @@ const devices = new DeviceRenderer(game.map);
 const landmarks = new LandmarkRenderer(game.map);
 const dressing = new DungeonDressing(game.map);
 const threat = new ThreatPath(game.map, game.rooms);
+const survey = new SurveyView(game.map);
 const atmosphere = new Atmosphere();
 const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
@@ -64,6 +66,7 @@ rig.scene.add(devices.group);
 rig.scene.add(landmarks.group);
 rig.scene.add(dressing.group);
 rig.scene.add(threat.group);
+rig.scene.add(survey.group);
 rig.scene.add(atmosphere.group);
 rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
@@ -113,6 +116,7 @@ topbar.innerHTML = `
   <span class="chip" id="chip-payday">Payday in <b>—</b></span>
   <span class="chip" id="chip-raid">Heroes in <b>—</b></span>
   <span class="chip" id="chip-fps"><b>—</b> fps</span>
+  <button class="icon-button" id="btn-survey" title="Show or hide the dig plan (V)">Dig plan</button>
   <button class="icon-button" id="btn-sound" title="Mute or unmute all sound">Sound</button>
   <button class="icon-button" id="btn-voice" title="Silence the narrator">Narrator</button>
   <button class="icon-button" id="btn-help">Controls</button>
@@ -126,6 +130,7 @@ const fpsChip = topbar.querySelector('#chip-fps b') as HTMLElement;
 const pauseButton = topbar.querySelector('#btn-pause') as HTMLButtonElement;
 const helpButton = topbar.querySelector('#btn-help') as HTMLButtonElement;
 const soundButton = topbar.querySelector('#btn-sound') as HTMLButtonElement;
+const surveyButton = topbar.querySelector('#btn-survey') as HTMLButtonElement;
 const voiceButton = topbar.querySelector('#btn-voice') as HTMLButtonElement;
 
 function refreshAudioButtons(): void {
@@ -167,11 +172,31 @@ helpButton.addEventListener('click', () => showBriefing(uiRoot!, () => {
   setPaused(false);
 }, true));
 
+/*
+ * The dig plan is on by default.
+ *
+ * Every instinct says an overlay should start hidden and be opted into. That is
+ * wrong here: the thing it fixes is a player looking at two hundred identical
+ * blocks with no idea which one to tag, and a player in that position does not
+ * know there is a button that would tell them. A feature that answers the
+ * opening question of the game has to be visible when the game opens. It is one
+ * key and one button away from off for anyone who would rather prospect blind.
+ */
+function setSurvey(on: boolean): void {
+  survey.setEnabled(on);
+  surveyButton.classList.toggle('is-off', !on);
+  surveyButton.textContent = on ? 'Dig plan' : 'Dig plan off';
+}
+surveyButton.addEventListener('click', () => setSurvey(!survey.enabled));
+setSurvey(true);
+
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (e.code === 'Space' && !(e.target instanceof HTMLButtonElement)) {
     e.preventDefault();
     setPaused(!paused);
   }
+  if (e.code === 'KeyV') setSurvey(!survey.enabled);
 });
 
 /* ------------------------------------------------------------ the loop -- */
@@ -221,6 +246,8 @@ function frame(): void {
   dressing.syncIfDirty();
   threat.syncIfDirty();
   threat.update(time, game.waveImminence());
+  if (survey.enabled) survey.syncIfDirty(game.survey());
+  survey.update(time);
   landmarks.update(time, camera.getDistance());
   atmosphere.update(dt, camera.target, time);
   lavaGlow.syncIfDirty();
@@ -334,6 +361,7 @@ window.dk = { game, camera, rig, audio, narrator, director };
 window.dk.groups = {
   terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
   landmarks: landmarks.group, dressing: dressing.group, threat: threat.group,
+  survey: survey.group,
   atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
   torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
   hand: hand.group,
@@ -362,6 +390,7 @@ if (import.meta.hot) {
     landmarks.dispose();
     dressing.dispose();
     threat.dispose();
+    survey.dispose();
     atmosphere.dispose();
     lavaGlow.dispose();
     creatureRenderer.dispose();

@@ -18,6 +18,7 @@ import { DOOR_SPECS, DoorType, TrapType } from '../src/core/devices';
 import { generateLevel } from '../src/core/levelgen';
 import { damageCreature } from '../src/core/ai';
 import { objectiveProgress } from '../src/core/objectives';
+import { FLAG_REVEALED } from '../src/core/tilemap';
 
 let failures = 0;
 
@@ -667,6 +668,73 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
   // vertex transform per creature on screen. Twenty thousand is a phone's worth.
   check('no species blows the vertex budget', heaviest < 20000,
     { heaviest: heaviestName, verts: heaviest });
+}
+
+/* -- the dig plan -------------------------------------------------------- */
+
+{
+  // A fresh realm, so the survey is judged on what a player sees at the start
+  // rather than on a map the earlier checks have already carved up.
+  const fresh = generateLevel({ seed: 20260726 });
+  const plan = fresh.survey();
+
+  check('the survey plans a route to something', plan.routes.length > 0,
+    { routes: plan.routes.map((r) => r.label) });
+  check('the survey caches on map version', fresh.survey() === plan);
+
+  let worstStart = 'ok', badTerrain = 'ok', discontinuous = 'ok';
+  for (const route of plan.routes) {
+    // A route has to begin on ground the keeper actually holds, or the wedges
+    // would start in the middle of a rock face and lead nowhere in particular.
+    if (fresh.map.owner[route.path[0]] !== Owner.Player) worstStart = route.label;
+    for (let i = 0; i < route.path.length; i++) {
+      const t = fresh.map.terrain[route.path[i]] as Terrain;
+      // Bedrock and liquids are impassable to an imp; a plan that crossed one
+      // would be an instruction the player cannot carry out.
+      if (t === Terrain.Rock || t === Terrain.Water || t === Terrain.Lava) badTerrain = route.label;
+      if (i === 0) continue;
+      const a = route.path[i - 1], b = route.path[i];
+      const step = Math.abs(fresh.map.xOf(a) - fresh.map.xOf(b))
+        + Math.abs(fresh.map.yOf(a) - fresh.map.yOf(b));
+      // Four-neighbour steps only: a diagonal would describe a corridor no imp
+      // can dig.
+      if (step !== 1) discontinuous = route.label;
+    }
+  }
+  check('every route starts on ground you hold', worstStart === 'ok', worstStart);
+  check('no route crosses bedrock or liquid', badTerrain === 'ok', badTerrain);
+  check('routes are continuous, one tile at a time', discontinuous === 'ok', discontinuous);
+
+  check('the known prefix never runs past the route',
+    plan.routes.every((r) => r.known <= r.path.length));
+  check('only revealed tiles count as known',
+    plan.routes.every((r) => r.path.slice(0, r.known)
+      .every((t) => (fresh.map.flags[t] & FLAG_REVEALED) !== 0)));
+
+  // Seams: clustered, reachable, and only ones the player has actually found.
+  check('seams are only the ones you have seen',
+    plan.seams.every((s) => (fresh.map.flags[s.tile] & FLAG_REVEALED) !== 0));
+  check('seams are clustered, not one marker per tile',
+    plan.seams.every((s) => s.tiles >= 1)
+    && plan.seams.reduce((n, s) => n + s.tiles, 0) >= plan.seams.length,
+    { seams: plan.seams.length, tiles: plan.seams.reduce((n, s) => n + s.tiles, 0) });
+  check('seams are sorted richest first',
+    plan.seams.every((s, i) => i === 0 || plan.seams[i - 1].gold >= s.gold));
+  check('every reported seam is reachable', plan.seams.every((s) => s.cost >= 0));
+
+  // Uncovering ground extends the plan. If it did not, it would be decoration.
+  const route = plan.routes[0];
+  if (route) {
+    const knownBefore = route.known;
+    for (const tile of route.path) fresh.map.reveal(fresh.map.xOf(tile), fresh.map.yOf(tile));
+    fresh.map.version++;
+    const after = fresh.survey();
+    check('the plan re-plans when the map changes',
+      after !== plan && after.version === fresh.map.version);
+    check('uncovering the route lengthens what is drawn of it',
+      after.routes[0].known > knownBefore,
+      { before: knownBefore, after: after.routes[0].known });
+  }
 }
 
 /* -- performance --------------------------------------------------------- */

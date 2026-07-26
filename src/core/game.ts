@@ -51,6 +51,7 @@ import {
 } from './objectives';
 import { PathFinder } from './pathfinding';
 import { RoomIndex, buildRoom, heartTile, nearestRoomTile, sellRoom, treasuryCapacity } from './rooms';
+import { DigField, Survey, surveyDungeon } from './survey';
 import { TileMap } from './tilemap';
 import { simInt } from './sim';
 
@@ -129,6 +130,10 @@ const RALLY_SECONDS = 150;
 export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   readonly map: TileMap;
   readonly rooms = new RoomIndex();
+
+  /** Scratch for the dig plan, allocated once — it is one array per tile. */
+  private readonly digField: DigField;
+  private surveyCache: Survey | null = null;
   readonly finder: PathFinder;
   readonly creatures: Creature[] = [];
 
@@ -189,6 +194,7 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   constructor(map: TileMap) {
     this.map = map;
     this.finder = new PathFinder(map);
+    this.digField = new DigField(map);
     for (const o of [Owner.Player, Owner.KeeperBlue, Owner.KeeperGreen, Owner.Heroes]) {
       this.keepers.set(o, {
         owner: o, gold: 0, mana: 1000, research: 0, food: 0, alive: true,
@@ -297,6 +303,22 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
 
   keeperAlive(owner: Owner): boolean {
     return heartTile(this.map, this.rooms, owner) >= 0;
+  }
+
+  /**
+   * The dig plan: what is worth excavating toward, and which blocks get there.
+   *
+   * Recomputed only when the map changes shape, which is the same signal the
+   * renderer already rebuilds on. It is a full Dijkstra over every tile, so it
+   * has no business running per frame — and it does not need to, because
+   * nothing it reports can change until somebody digs.
+   */
+  survey(): Survey {
+    if (!this.surveyCache || this.surveyCache.version !== this.map.version) {
+      const live = [Owner.KeeperBlue, Owner.KeeperGreen].filter((o) => this.keeperAlive(o));
+      this.surveyCache = surveyDungeon(this.map, this.rooms, live, this.digField);
+    }
+    return this.surveyCache;
   }
 
   heartIntegrity(owner: Owner): number {
