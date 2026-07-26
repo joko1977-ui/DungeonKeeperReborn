@@ -3,6 +3,7 @@ import { OWNER_COLORS, Owner, Terrain, isSolid } from '../core/constants';
 import { GameEffect } from '../core/game';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { WALL_HEIGHT } from './terrain';
+import { celRamp } from './celRamp';
 import { makeGlowTexture, makePuffTexture } from './textures';
 
 /**
@@ -35,6 +36,63 @@ const LIVE_LIGHTS = 7;
 /** Scratch colour for tinting flames toward a keeper's banner. */
 const TORCH_TINT = new THREE.Color();
 
+/** Ceiling on drawn flames. Two instanced draws whatever the dungeon's size. */
+const MAX_FLAMES = 700;
+
+/** How tall a flame stands, in world units. Shared by geometry and shader. */
+const FLAME_HEIGHT = 0.44;
+
+/*
+ * An actual flame, rather than a bright dot where a flame ought to be.
+ *
+ * A torch was a glow sprite and a point light — a corridor lit by nothing
+ * visible, the light arriving from a smudge. It is the same failure as a still
+ * lava lake: the thing the eye goes to has no shape in it. So every torch gets a
+ * real tongue of fire, leaning and guttering on its own clock, with the sconce
+ * it burns in underneath.
+ *
+ * Everything is done in the shader off a per-instance phase: the flame is a cone
+ * whose upper half is pushed sideways, so it bends rather than sliding, and
+ * whose height breathes. Which means one uniform a frame animates the lot,
+ * however many hundred there are.
+ */
+const FLAME_VERTEX = /* glsl */`
+  attribute float aPhase;
+  attribute vec3 aTint;
+  uniform float uTime;
+  varying float vT;
+  varying vec3 vTint;
+
+  void main() {
+    vT = clamp( position.y / ${FLAME_HEIGHT.toFixed(3)}, 0.0, 1.0 );
+    vTint = aTint;
+
+    vec3 p = position;
+    // Squared falloff, so the base stays planted in the sconce and only the tip
+    // whips about. A flame that swayed from its root would read as a flag.
+    float bend = vT * vT;
+    p.x += ( sin( uTime * 6.5 + aPhase ) * 0.5 + sin( uTime * 13.0 + aPhase * 2.3 ) * 0.25 ) * 0.09 * bend;
+    p.z += ( cos( uTime * 5.3 + aPhase * 1.7 ) * 0.5 + cos( uTime * 11.1 + aPhase ) * 0.22 ) * 0.09 * bend;
+    p.y *= 0.80 + 0.34 * ( 0.5 + 0.5 * sin( uTime * 9.1 + aPhase * 3.1 ) );
+
+    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4( p, 1.0 );
+  }
+`;
+
+const FLAME_FRAGMENT = /* glsl */`
+  varying float vT;
+  varying vec3 vTint;
+
+  void main() {
+    // Three flat bands, hard-edged, like everything else in the picture: a pale
+    // core, the body of the flame, and a dull red at the tip where it is dying.
+    vec3 c = vT < 0.30 ? vec3( 1.00, 0.93, 0.68 )
+           : vT < 0.62 ? vec3( 1.00, 0.58, 0.13 )
+                       : vec3( 0.88, 0.20, 0.04 );
+    gl_FragColor = vec4( c * vTint, 1.0 - smoothstep( 0.55, 1.0, vT ) );
+  }
+`;
+
 interface TorchSite {
   x: number;
   y: number;
@@ -55,6 +113,16 @@ export class TorchSystem {
   private readonly geometry: THREE.BufferGeometry;
   private readonly material: THREE.PointsMaterial;
   private readonly lights: THREE.PointLight[] = [];
+
+  /** The visible fire, and the iron cup it burns in. */
+  private readonly flameMesh: THREE.InstancedMesh;
+  private readonly flameMaterial: THREE.ShaderMaterial;
+  private readonly phaseAttr: THREE.InstancedBufferAttribute;
+  private readonly tintAttr: THREE.InstancedBufferAttribute;
+  private readonly sconceMesh: THREE.InstancedMesh;
+  private readonly sconceMaterial: THREE.MeshToonMaterial;
+  private readonly clock: THREE.IUniform<number> = { value: 0 };
+  private readonly dummy = new THREE.Object3D();
 
   private positions = new Float32Array(0);
   private colors = new Float32Array(0);
@@ -77,6 +145,51 @@ export class TorchSystem {
     this.points.frustumCulled = false;
     this.points.renderOrder = 4;
     this.group.add(this.points);
+
+    // A teardrop, not a cone: the widest point is a third of the way up, which
+    // is where a flame actually is widest, and a plain cone reads as a hat.
+    const flameGeo = new THREE.LatheGeometry(
+      [
+        new THREE.Vector2(0.001, 0),
+        new THREE.Vector2(0.088, FLAME_HEIGHT * 0.16),
+        new THREE.Vector2(0.108, FLAME_HEIGHT * 0.36),
+        new THREE.Vector2(0.078, FLAME_HEIGHT * 0.66),
+        new THREE.Vector2(0.033, FLAME_HEIGHT * 0.88),
+        new THREE.Vector2(0.001, FLAME_HEIGHT),
+      ],
+      7,
+    );
+    this.phaseAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_FLAMES), 1);
+    this.tintAttr = new THREE.InstancedBufferAttribute(new Float32Array(MAX_FLAMES * 3), 3);
+    flameGeo.setAttribute('aPhase', this.phaseAttr);
+    flameGeo.setAttribute('aTint', this.tintAttr);
+    this.flameMaterial = new THREE.ShaderMaterial({
+      uniforms: { uTime: this.clock },
+      vertexShader: FLAME_VERTEX,
+      fragmentShader: FLAME_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    this.flameMesh = new THREE.InstancedMesh(flameGeo, this.flameMaterial, MAX_FLAMES);
+    this.flameMesh.count = 0;
+    this.flameMesh.frustumCulled = false;
+    this.flameMesh.renderOrder = 3;
+    this.group.add(this.flameMesh);
+
+    // The sconce. Small, dark, and lit like the rest of the dungeon rather than
+    // glowing — it is the one part of a torch that is not on fire.
+    const sconceGeo = new THREE.CylinderGeometry(0.075, 0.042, 0.10, 6);
+    sconceGeo.translate(0, -0.05, 0);
+    this.sconceMaterial = new THREE.MeshToonMaterial({
+      color: 0x2c2724,
+      gradientMap: celRamp(),
+    });
+    this.sconceMesh = new THREE.InstancedMesh(sconceGeo, this.sconceMaterial, MAX_FLAMES);
+    this.sconceMesh.count = 0;
+    this.sconceMesh.frustumCulled = false;
+    this.group.add(this.sconceMesh);
 
     for (let i = 0; i < LIVE_LIGHTS; i++) {
       const light = new THREE.PointLight(0xffb066, 0, 10.5, 1.5);
@@ -145,6 +258,27 @@ export class TorchSystem {
     this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3));
     this.geometry.setAttribute('size', new THREE.BufferAttribute(this.sizes, 1));
     this.geometry.computeBoundingSphere();
+
+    // Place the fire and its sconce. Both are static once placed; only the
+    // shader and the per-instance tint move afterwards.
+    const drawn = Math.min(n, MAX_FLAMES);
+    for (let i = 0; i < drawn; i++) {
+      const s = sites[i];
+      this.dummy.position.set(s.x, s.z, s.y);
+      this.dummy.rotation.set(0, (i * 2.39996) % (Math.PI * 2), 0);
+      // A row of identically sized flames is a fence. Vary them a little.
+      const scale = 0.85 + ((i * 37) % 11) / 33;
+      this.dummy.scale.set(scale, scale * (0.9 + ((i * 53) % 7) / 20), scale);
+      this.dummy.updateMatrix();
+      this.flameMesh.setMatrixAt(i, this.dummy.matrix);
+      this.sconceMesh.setMatrixAt(i, this.dummy.matrix);
+      this.phaseAttr.setX(i, s.phase * 1.7 + i * 0.61);
+    }
+    this.flameMesh.count = drawn;
+    this.sconceMesh.count = drawn;
+    this.flameMesh.instanceMatrix.needsUpdate = true;
+    this.sconceMesh.instanceMatrix.needsUpdate = true;
+    this.phaseAttr.needsUpdate = true;
   }
 
   /**
@@ -175,8 +309,15 @@ export class TorchSystem {
       this.colors[i * 3] = c.r;
       this.colors[i * 3 + 1] = c.g;
       this.colors[i * 3 + 2] = c.b;
+      // The flame wears the same colour as the halo around it, at a fraction of
+      // the strength: the shader supplies the shape, this only tints it.
+      if (i < MAX_FLAMES) {
+        this.tintAttr.setXYZ(i, 0.55 + c.r * 0.30, 0.55 + c.g * 0.30, 0.55 + c.b * 0.30);
+      }
     }
     colorAttr.needsUpdate = true;
+    this.tintAttr.needsUpdate = true;
+    this.clock.value = time;
 
     // Promote the closest torches to real lights.
     const scored: Array<{ i: number; d: number }> = [];
@@ -208,6 +349,10 @@ export class TorchSystem {
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
+    this.flameMesh.geometry.dispose();
+    this.flameMaterial.dispose();
+    this.sconceMesh.geometry.dispose();
+    this.sconceMaterial.dispose();
   }
 }
 
