@@ -39,6 +39,26 @@ export interface CreatureModel {
  * Exported because room furniture is built exactly the same way — chunky
  * shapes, flat vertex colours, merged into a single instanced draw.
  */
+/**
+ * Floors on how coarse a primitive is allowed to be.
+ *
+ * Every shape in the roster used to be built at four to nine segments, which is
+ * why the creatures read as *edgy*: at that resolution a sphere is a faceted
+ * lump, a cone is a pyramid, and a horn is a wedge. Individual call sites all
+ * asked for low counts to be frugal, and the frugality was misplaced — geometry
+ * here is uploaded once per species and then instanced, so extra segments cost
+ * vertex transform and never a draw call. Twenty creatures on screen cost
+ * exactly what one does.
+ *
+ * Clamping centrally rather than editing several hundred call sites: each of
+ * those numbers was chosen relative to the part's size, and the ratios between
+ * them are still right. They just all needed a floor under them.
+ */
+const MIN_RADIAL = 16;
+const MIN_CONE_RADIAL = 14;
+const MIN_TORUS_RADIAL = 10;
+const MIN_TORUS_TUBULAR = 28;
+
 export class PartBuilder {
   private readonly parts: THREE.BufferGeometry[] = [];
 
@@ -59,7 +79,8 @@ export class PartBuilder {
 
   sphere(r: number, x: number, y: number, z: number, color: number,
     sx = 1, sy = 1, sz = 1, seg = 9): this {
-    const g = new THREE.SphereGeometry(r, seg, Math.max(4, seg - 2));
+    const rings = Math.max(MIN_RADIAL, seg);
+    const g = new THREE.SphereGeometry(r, rings, Math.max(10, Math.round(rings * 0.7)));
     g.scale(sx, sy, sz);
     g.translate(x, y, z);
     this.push(g, color);
@@ -68,7 +89,10 @@ export class PartBuilder {
 
   box(w: number, h: number, d: number, x: number, y: number, z: number, color: number,
     rx = 0, ry = 0, rz = 0): this {
-    const g = new THREE.BoxGeometry(w, h, d);
+    // Segmented rather than a bare cube. With smooth vertex normals across the
+    // merged mesh this rounds the arrises very slightly, which is the
+    // difference between a shape and a brick.
+    const g = new THREE.BoxGeometry(w, h, d, 2, 2, 2);
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
@@ -79,7 +103,7 @@ export class PartBuilder {
 
   cone(r: number, h: number, x: number, y: number, z: number, color: number,
     rx = 0, ry = 0, rz = 0, seg = 7): this {
-    const g = new THREE.ConeGeometry(r, h, seg);
+    const g = new THREE.ConeGeometry(r, h, Math.max(MIN_CONE_RADIAL, seg));
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
@@ -90,7 +114,7 @@ export class PartBuilder {
 
   cylinder(rt: number, rb: number, h: number, x: number, y: number, z: number, color: number,
     rx = 0, ry = 0, rz = 0, seg = 7): this {
-    const g = new THREE.CylinderGeometry(rt, rb, h, seg);
+    const g = new THREE.CylinderGeometry(rt, rb, h, Math.max(MIN_RADIAL, seg));
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
@@ -101,7 +125,7 @@ export class PartBuilder {
 
   torus(radius: number, tube: number, x: number, y: number, z: number, color: number,
     rx = -Math.PI / 2, ry = 0, rz = 0, arc = Math.PI * 2): this {
-    const g = new THREE.TorusGeometry(radius, tube, 6, 14, arc);
+    const g = new THREE.TorusGeometry(radius, tube, MIN_TORUS_RADIAL, MIN_TORUS_TUBULAR, arc);
     if (rx) g.rotateX(rx);
     if (ry) g.rotateY(ry);
     if (rz) g.rotateZ(rz);
