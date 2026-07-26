@@ -10,6 +10,7 @@ import { HandOfEvil, Tool } from './input/hand';
 import { CreatureRenderer } from './render/creatureRenderer';
 import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
+import { DungeonDressing } from './render/dressing';
 import { LandmarkRenderer } from './render/landmarks';
 import { LavaGlow } from './render/lavaGlow';
 import { ParticleSystem, TorchSystem } from './render/effects';
@@ -47,6 +48,7 @@ const creatureRenderer = new CreatureRenderer();
 const roomProps = new RoomPropRenderer(game.map);
 const devices = new DeviceRenderer(game.map);
 const landmarks = new LandmarkRenderer(game.map);
+const dressing = new DungeonDressing(game.map);
 const atmosphere = new Atmosphere();
 const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
@@ -57,6 +59,7 @@ rig.scene.add(creatureRenderer.group);
 rig.scene.add(roomProps.group);
 rig.scene.add(devices.group);
 rig.scene.add(landmarks.group);
+rig.scene.add(dressing.group);
 rig.scene.add(atmosphere.group);
 rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
@@ -206,6 +209,7 @@ function frame(): void {
   devices.syncIfDirty();
   devices.update(time, game.gasTiles());
   landmarks.syncIfDirty();
+  dressing.syncIfDirty();
   landmarks.update(time, camera.getDistance());
   atmosphere.update(dt, camera.target, time);
   lavaGlow.syncIfDirty();
@@ -255,6 +259,7 @@ function frame(): void {
       // The air is the cheapest thing to thin out, so it goes first — before
       // bloom, before shadows, before resolution.
       atmosphere.setDensity(fps > 45 ? 1 : fps > 30 ? 0.6 : fps > 20 ? 0.3 : 0);
+      dressing.setDensity(fps > 45 ? 1 : fps > 30 ? 0.7 : fps > 20 ? 0.4 : 0.2);
       lavaGlow.setBudget(fps > 40 ? 3 : fps > 25 ? 2 : 1);
     }
   }
@@ -309,7 +314,8 @@ window.dk = { game, camera, rig, audio, narrator, director };
 // Judging a creature against a wall of glowing lava is judging the lava.
 window.dk.groups = {
   terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
-  landmarks: landmarks.group, atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
+  landmarks: landmarks.group, dressing: dressing.group,
+  atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
   torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
   hand: hand.group,
 };
@@ -334,6 +340,7 @@ if (import.meta.hot) {
     roomProps.dispose();
     devices.dispose();
     landmarks.dispose();
+    dressing.dispose();
     atmosphere.dispose();
     lavaGlow.dispose();
     creatureRenderer.dispose();

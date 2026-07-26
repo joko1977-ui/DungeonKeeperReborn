@@ -191,8 +191,13 @@ export class CameraController {
 
     // Moving both fingers together pans — the two-finger gesture carries
     // position, scale and rotation at once, the way a map does.
+    //
+    // And it drags the *map*, not the camera. Fingers going left send the world
+    // left and the view right, which is what every touch surface does and what the
+    // hand expects; the camera-moves-with-your-fingers reading is correct for a
+    // mouse dragging a viewport and backwards for a thumb on the thing itself.
     if (this.pinchDistance > 0) {
-      this.dragTarget(centre.x - this.pinchCentre.x, centre.y - this.pinchCentre.y);
+      this.dragTarget(this.pinchCentre.x - centre.x, this.pinchCentre.y - centre.y);
     }
     this.pinchCentre = centre;
 
