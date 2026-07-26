@@ -95,10 +95,9 @@ const GRADE_SHADER = {
  * and no amount of shading was going to hide that; an outline stops trying to
  * hide it and makes the simplicity look deliberate.
  *
- * Depth rather than normals: it needs one buffer we already have, it catches
- * silhouettes and object-against-object edges, and it deliberately does *not*
- * draw a line down every crease in a wall, which would turn a dungeon of stone
- * blocks into graph paper.
+ * Depth rather than normals: it needs one buffer we already have, and both kinds
+ * of line fall out of it — silhouettes from the first derivative, creases from the
+ * second. See `main` for what that means and why it took both.
  *
  * It runs in linear space, before tone mapping, because of where the depth
  * lives — see `InkPass` for why that is not negotiable.
@@ -112,6 +111,10 @@ const EDGE_SHADER = {
     // multiplicative cut here to survive tone mapping as a visible dark line.
     uStrength: { value: 0.92 },
     uThreshold: { value: 0.055 },
+    /** Second-derivative threshold: how sharp a corner has to be to earn a line. */
+    uCrease: { value: 0.0075 },
+    /** Creases draw lighter than silhouettes, the way they are inked lighter. */
+    uCreaseWeight: { value: 0.72 },
     uNear: { value: 1 },
     uFar: { value: 200 },
   },
@@ -128,6 +131,8 @@ const EDGE_SHADER = {
     uniform vec2 uTexel;
     uniform float uStrength;
     uniform float uThreshold;
+    uniform float uCrease;
+    uniform float uCreaseWeight;
     uniform float uNear;
     uniform float uFar;
     varying vec2 vUv;
@@ -148,13 +153,35 @@ const EDGE_SHADER = {
       float u = viewDepth( vUv + vec2( 0.0, uTexel.y ) );
       float d = viewDepth( vUv - vec2( 0.0, uTexel.y ) );
 
-      float edge = max( max( abs( c - l ), abs( c - r ) ),
-                        max( abs( c - u ), abs( c - d ) ) );
-      // Scaled by depth so a distant silhouette gets the same weight of line as
-      // a near one; without this the far half of the dungeon has no outlines.
-      edge /= max( 1.0, abs( c ) * 0.08 );
+      // Two kinds of line, because a drawing has two kinds of line.
+      //
+      // The first derivative finds *silhouettes*: a jump in depth, where one thing
+      // ends and something further away begins. That is all this pass used to look
+      // for, and it is why the dungeon had an outline around every object and no
+      // line anywhere inside one — the wall a creature stands against is at almost
+      // the same depth, so the two merged into a single flat shape.
+      //
+      // The second derivative finds *creases*: where two surfaces meet at an angle.
+      // A flat plane seen in perspective has a constant depth gradient, so its
+      // second derivative is nothing; a corner spikes. Comparing a pixel against
+      // the average of its neighbours is that measurement, and it costs the four
+      // samples already taken. It is what draws the join between a floor and a
+      // wall, the step at the top of a block, and the edge of a stair — the
+      // interior linework that separates an illustration from a silhouette.
+      float silhouette = max( max( abs( c - l ), abs( c - r ) ),
+                              max( abs( c - u ), abs( c - d ) ) );
+      float crease = max( abs( c - ( l + r ) * 0.5 ), abs( c - ( u + d ) * 0.5 ) );
 
-      float ink = smoothstep( uThreshold, uThreshold * 3.5, edge );
+      // Scaled by depth so a distant line gets the same weight as a near one;
+      // without this the far half of the dungeon has no outlines.
+      float falloff = max( 1.0, abs( c ) * 0.08 );
+      silhouette /= falloff;
+      crease /= falloff;
+
+      float ink = max(
+        smoothstep( uThreshold, uThreshold * 3.5, silhouette ),
+        smoothstep( uCrease, uCrease * 3.0, crease ) * uCreaseWeight
+      );
       gl_FragColor = vec4( base.rgb * ( 1.0 - ink * uStrength ), base.a );
     }`,
 };
@@ -413,7 +440,11 @@ export class SceneRig {
     this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = quality.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Hard-edged, to match everything else. A soft shadow is a gradient, and a
+    // gradient is the one thing this look does not have: the ramp shades in three
+    // flat steps, the textures are posterised into five, and a penumbra fading
+    // smoothly across a floor was the only continuous tone left in the frame.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // Everything metal in the dungeon reflects this: gold heaps, iron doors,
     // anvils, and the armour a veteran creature earns. Set on the scene so it

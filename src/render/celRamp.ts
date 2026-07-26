@@ -46,3 +46,54 @@ export function celRamp(): THREE.DataTexture {
   if (!shared) shared = makeCelRamp();
   return shared;
 }
+
+/**
+ * Add a rim light to a lit material.
+ *
+ * The one thing this style has that the shading model does not: a bright edge
+ * where a form turns away from the camera, as if a light sat just behind it. Comic
+ * and animation lighting leans on it constantly, and for a very practical reason
+ * that applies exactly here — it is what separates a character from a background
+ * of similar value. A dark red imp on a dark red floor is one shape until you draw
+ * a line of light along its shoulder.
+ *
+ * It is not a physical effect and does not pretend to be. Fresnel would put the
+ * rim where the *surface* faces away; this puts it where the surface faces away
+ * from the *viewer*, which is where an artist puts it, and it means the rim stays
+ * put as the creature turns rather than sliding around its body.
+ *
+ * Added after the material's own lighting so the ramp cannot quantise it into a
+ * step — a rim that snaps between bands reads as a rendering error, and the whole
+ * point of it is a clean line.
+ */
+export function addRimLight(
+  material: THREE.Material, colour: number, strength: number, power = 2.6,
+): void {
+  const rim = new THREE.Color(colour).convertSRGBToLinear();
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uRimColour = { value: new THREE.Vector3(rim.r, rim.g, rim.b) };
+    shader.uniforms.uRimStrength = { value: strength };
+    shader.uniforms.uRimPower = { value: power };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform vec3 uRimColour;
+         uniform float uRimStrength;
+         uniform float uRimPower;`,
+      )
+      .replace(
+        '#include <fog_fragment>',
+        `{
+           // The normal and the view direction are both in view space here, so the
+           // camera direction is simply +Z and no matrices are needed. Inserted
+           // before the fog so a rim on a distant creature fades with everything
+           // else instead of shining through it.
+           float facing = abs( dot( normalize( vNormal ), vec3( 0.0, 0.0, 1.0 ) ) );
+           gl_FragColor.rgb += uRimColour * pow( 1.0 - facing, uRimPower ) * uRimStrength;
+         }
+         #include <fog_fragment>`,
+      );
+  };
+  material.customProgramCacheKey = () => `rim-${colour}-${strength}-${power}`;
+}

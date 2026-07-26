@@ -76,7 +76,9 @@ function wallSlotFor(map: TileMap, i: number): number {
  * blocks are guarded by their own defines, so they simply drop out on a toon
  * material, which has neither.
  */
-function applyAtlasShader(material: THREE.Material, atlas: GeneratedAtlas): void {
+function applyAtlasShader(
+  material: THREE.Material, atlas: GeneratedAtlas, contactShading = false,
+): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAtlasCols = { value: atlas.cols };
     shader.uniforms.uAtlasRows = { value: atlas.rows };
@@ -116,9 +118,105 @@ function applyAtlasShader(material: THREE.Material, atlas: GeneratedAtlas): void
            #endif
          }`,
       );
+
+    if (!contactShading) return;
+
+    /*
+     * Contact shading: the dark the artist puts where a floor meets a wall.
+     *
+     * The single biggest thing still missing. Every object in the dungeon sat on
+     * the floor without touching it — no occlusion, no darkening in the corners,
+     * so a room read as a flat plane with blocks placed on top rather than as a
+     * space cut out of rock. It is the same observation as the rim light from the
+     * other end: an illustrator draws a heavy line and a wash of shadow along the
+     * base of a wall, and without it geometry floats.
+     *
+     * Done from the tile's own neighbours rather than in screen space. A real
+     * ambient-occlusion pass needs a normal buffer, a blur and a good deal of
+     * frame time, and would deliver a soft grey haze — where what this wants is a
+     * hard-edged wash in exactly the places the map already knows about: the eight
+     * neighbours of a tile, packed into one byte per instance.
+     */
+    shader.uniforms.uOcclusion = { value: 0.55 };
+    shader.uniforms.uOccReach = { value: 0.46 };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         attribute float aOcc;
+         varying float vOcc;
+         varying vec2 vTileUv;`,
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+         vOcc = aOcc;
+         vTileUv = uv;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform float uOcclusion;
+         uniform float uOccReach;
+         varying float vOcc;
+         varying vec2 vTileUv;
+
+         float occBit( float mask, float bit ) {
+           return mod( floor( mask / pow( 2.0, bit ) ), 2.0 );
+         }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // Bits run round the tile: edges at 0-3 and corners at 4-7, both
+           // anticlockwise from -u, so a tile's random quarter-turn is applied by
+           // rotating the byte rather than by anything the shader has to know.
+           float k = uOccReach;
+           float du0 = vTileUv.x, du1 = 1.0 - vTileUv.x;
+           float dv0 = vTileUv.y, dv1 = 1.0 - vTileUv.y;
+           float occ = 0.0;
+           occ = max( occ, occBit( vOcc, 0.0 ) * smoothstep( k, 0.0, du0 ) );
+           occ = max( occ, occBit( vOcc, 1.0 ) * smoothstep( k, 0.0, dv1 ) );
+           occ = max( occ, occBit( vOcc, 2.0 ) * smoothstep( k, 0.0, du1 ) );
+           occ = max( occ, occBit( vOcc, 3.0 ) * smoothstep( k, 0.0, dv0 ) );
+           occ = max( occ, occBit( vOcc, 4.0 ) * smoothstep( k, 0.0, length( vec2( du0, dv1 ) ) ) );
+           occ = max( occ, occBit( vOcc, 5.0 ) * smoothstep( k, 0.0, length( vec2( du1, dv1 ) ) ) );
+           occ = max( occ, occBit( vOcc, 6.0 ) * smoothstep( k, 0.0, length( vec2( du1, dv0 ) ) ) );
+           occ = max( occ, occBit( vOcc, 7.0 ) * smoothstep( k, 0.0, length( vec2( du0, dv0 ) ) ) );
+           diffuseColor.rgb *= 1.0 - occ * uOcclusion;
+         }`,
+      );
   };
   // Force a recompile if the material is reused across atlases.
-  material.customProgramCacheKey = () => `atlas-${atlas.cols}x${atlas.rows}`;
+  material.customProgramCacheKey = () => `atlas-${atlas.cols}x${atlas.rows}-${contactShading}`;
+}
+
+/**
+ * Pack a floor tile's solid neighbours into one byte, in the tile's own frame.
+ *
+ * Bits 0-3 are the edges and 4-7 the corners, both running anticlockwise from the
+ * -u side. Floor quads are given a random quarter-turn to stop the texture reading
+ * as a repeat, so the byte is rotated by the same amount here: the shader then
+ * needs to know nothing about which way a particular tile happens to be facing.
+ */
+function neighbourMask(map: TileMap, x: number, y: number, quarter: number): number {
+  // Anticlockwise from -u with the quad unrotated: west, north, east, south.
+  const edges = [
+    map.isSolidAt(x - 1, y), map.isSolidAt(x, y - 1),
+    map.isSolidAt(x + 1, y), map.isSolidAt(x, y + 1),
+  ];
+  const corners = [
+    map.isSolidAt(x - 1, y - 1), map.isSolidAt(x + 1, y - 1),
+    map.isSolidAt(x + 1, y + 1), map.isSolidAt(x - 1, y + 1),
+  ];
+  let mask = 0;
+  for (let k = 0; k < 4; k++) {
+    if (edges[k]) mask |= 1 << ((k + quarter) & 3);
+    if (corners[k]) mask |= 1 << (4 + ((k + quarter) & 3));
+  }
+  return mask;
 }
 
 export class TerrainRenderer {
@@ -128,6 +226,8 @@ export class TerrainRenderer {
   private readonly floorMesh: THREE.InstancedMesh;
   private readonly wallMesh: THREE.InstancedMesh;
   private readonly floorTileAttr: THREE.InstancedBufferAttribute;
+  /** Which of a floor tile's eight neighbours are solid, packed per instance. */
+  private readonly floorOccAttr: THREE.InstancedBufferAttribute;
   private readonly wallTileAttr: THREE.InstancedBufferAttribute;
 
   /** Glowing tags on walls the keeper has marked for excavation. */
@@ -181,7 +281,7 @@ export class TerrainRenderer {
       // now; this is left only so a surface is not perfectly dead.
       normalScale: new THREE.Vector2(0.32, 0.32),
     });
-    applyAtlasShader(this.floorMaterial, floorAtlas);
+    applyAtlasShader(this.floorMaterial, floorAtlas, true);
 
     this.floorMesh = new THREE.InstancedMesh(floorGeo, this.floorMaterial, capacity);
     this.floorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -191,6 +291,9 @@ export class TerrainRenderer {
     this.floorTileAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.floorTileAttr.setUsage(THREE.DynamicDrawUsage);
     floorGeo.setAttribute('aTile', this.floorTileAttr);
+    this.floorOccAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    this.floorOccAttr.setUsage(THREE.DynamicDrawUsage);
+    floorGeo.setAttribute('aOcc', this.floorOccAttr);
     this.floorMesh.instanceColor =
       new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     this.floorMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -330,11 +433,13 @@ export class TerrainRenderer {
           }
         } else {
           dummy.position.set(x, terrain === Terrain.Water || terrain === Terrain.Lava ? -0.18 : 0, y);
-          dummy.rotation.set(0, (Math.floor(tileNoise(i, 6) * 4) * Math.PI) / 2, 0);
+          const quarter = Math.floor(tileNoise(i, 6) * 4);
+          dummy.rotation.set(0, (quarter * Math.PI) / 2, 0);
           dummy.scale.set(1, 1, 1);
           dummy.updateMatrix();
           this.floorMesh.setMatrixAt(floorN, dummy.matrix);
           this.floorTileAttr.setX(floorN, floorSlotFor(map, i));
+          this.floorOccAttr.setX(floorN, neighbourMask(map, x, y, quarter));
 
           const fv = 0.86 + tileNoise(i, 5) * 0.28;
           if (terrain === Terrain.Claimed && owner !== Owner.None) {
@@ -362,6 +467,7 @@ export class TerrainRenderer {
     this.markMesh.instanceMatrix.needsUpdate = true;
     this.floorTileAttr.needsUpdate = true;
     this.wallTileAttr.needsUpdate = true;
+    this.floorOccAttr.needsUpdate = true;
     if (this.floorMesh.instanceColor) this.floorMesh.instanceColor.needsUpdate = true;
     if (this.wallMesh.instanceColor) this.wallMesh.instanceColor.needsUpdate = true;
 

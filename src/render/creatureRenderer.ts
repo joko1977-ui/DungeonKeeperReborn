@@ -14,7 +14,7 @@ import {
 import { makeGlowTexture } from './textures';
 
 import { PartBuilder } from './creatureModels';
-import { celRamp } from './celRamp';
+import { addRimLight, celRamp } from './celRamp';
 
 /** A bulging sack with coins spilling over the tie. */
 function buildGoldSack(): THREE.BufferGeometry {
@@ -101,6 +101,12 @@ export class CreatureRenderer {
       vertexColors: true,
       gradientMap: this.celRamp,
     });
+    // A warm edge, because a creature has to be findable. The dungeon is dark red
+    // rock lit by fire and most of the roster is dark and warm too; a troll in the
+    // corner of a lair was a green shape inside a brown shape. The rim draws the
+    // line that tells them apart, and it is the single cheapest thing that makes a
+    // stylised scene look lit by someone rather than by a renderer.
+    addRimLight(this.bodyMaterial, 0xffc98a, 0.5);
     // Armour is metal and must behave like metal: high metalness, low
     // roughness, and it picks up the environment. Sharing the body material
     // would have made a steel pauldron look like painted hide.
