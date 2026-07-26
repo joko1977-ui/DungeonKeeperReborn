@@ -725,10 +725,6 @@ html, body {
   background: linear-gradient(90deg, var(--gold-dim), var(--gold));
 }
 
-/* Narrow screens: keep it, but out of the way. */
-@media (max-width: 560px) {
-  #objectives { top: 44px; left: 8px; width: 220px; font-size: 11px; }
-}
 
 /* ------------------------------------------- briefing & verdict details -- */
 
@@ -765,4 +761,140 @@ dl.objectives.outcome dt.missed { color: var(--text-dim); }
 @media (max-width: 620px) {
   dl.objectives { grid-template-columns: 1fr; gap: 2px; }
   dl.objectives dd { margin-bottom: 6px; }
+}
+
+/* ================================================================ phones == */
+/*
+ * Everything above lays out for a screen with room to spare. A phone in portrait
+ * has 390 by 664 points, of which the browser's own chrome takes a third, and
+ * every one of the rules below exists because something measurably did not fit:
+ *
+ *   - the top strip wrapped onto a second row and printed its buttons straight
+ *     through the objectives card,
+ *   - the tab rail is a vertical column of five 48-point tabs in 116 points of
+ *     panel, so three of them were simply unreachable,
+ *   - the tool grid wraps into rows, and there is height for one, so five of the
+ *     seven rooms were below the fold with nothing to say so,
+ *   - and the objectives card stood open over a quarter of the view.
+ *
+ * Kept as one block at the end of the sheet rather than folded into the earlier
+ * responsive rules, because several of these have to beat the `pointer: coarse`
+ * sizing above and specificity here is equal — so order is what decides.
+ */
+/* Narrow, or short: a phone on its side has the same problems turned ninety
+   degrees, and the tab rail runs out of height there first. */
+@media (max-width: 560px), (max-height: 460px) {
+  :root { --panel-h: 142px; }
+
+  /* One row, always. Wrapping is what put buttons over the objectives. */
+  #topbar {
+    flex-wrap: nowrap;
+    gap: 5px;
+    padding: calc(5px + env(safe-area-inset-top)) 7px 5px;
+    font-size: 11px;
+  }
+  #topbar .chip { padding: 2px 6px; white-space: nowrap; }
+  /* The frame counter is a developer's readout, and the first thing to go. */
+  #topbar #chip-fps { display: none; }
+  #topbar .icon-button { padding: 7px 8px; font-size: 11px; }
+
+  /* Below the strip, narrow, and folded until asked for. */
+  #objectives {
+    top: calc(40px + env(safe-area-inset-top));
+    left: 7px;
+    width: 196px;
+    font-size: 10.5px;
+  }
+  #objectives-header { padding: 6px 7px; font-size: 11px; }
+  /* Long goals on a narrow card are three lines each; cap the card and scroll. */
+  #objectives-list {
+    max-height: 32vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /*
+   * The panel becomes a grid so the tab rail can lie down.
+   *
+   * As a flex row it is a column of five tabs beside the tool grid, and 126
+   * points of panel holds two of them — the workshop, the creature list and the
+   * sell tool were off the bottom edge with no way to reach them. Two rows in the
+   * right-hand cell puts the rail across the top where all five fit, and gives
+   * the grid below it the full width instead of sharing it.
+   */
+  #hud {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 5px;
+    padding: 6px 7px calc(6px + env(safe-area-inset-bottom));
+  }
+  #minimap-block { grid-area: 1 / 1 / 3 / 2; }
+  #tabs { grid-area: 1 / 2 / 2 / 3; }
+  #tool-block { grid-area: 2 / 2 / 3 / 3; }
+
+  /* Map on the left, readouts stacked beside it rather than under it: a square
+     map wide enough to read plus three readouts is taller than the panel. */
+  #minimap-block {
+    width: 156px;
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 4px;
+    align-content: start;
+  }
+  #minimap-frame { grid-row: 1 / span 2; }
+  .readouts { flex-direction: column; gap: 4px; }
+  .readout { padding: 2px 4px; font-size: 11px; gap: 3px; }
+  .readout .glyph { width: 11px; height: 11px; }
+
+  #tabs { flex-direction: row; padding: 4px; gap: 4px; }
+  .tab { width: 36px; height: 30px; }
+  .tab svg { width: 19px; height: 19px; }
+
+  #tool-title { font-size: 10px; letter-spacing: 0.1em; }
+
+  /*
+   * Sideways, not downward. A grid that wraps into rows needs vertical room the
+   * panel does not have, and a clipped second row reads as "there are only two
+   * rooms" rather than as "scroll". One full-height row that scrolls under the
+   * thumb shows every button and hides none of them.
+   */
+  #tool-grid {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 64px;
+    grid-auto-rows: auto;
+    gap: 5px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tool-button { min-height: 0; padding: 3px; }
+  .tool-button svg { width: 22px; height: 22px; }
+  .tool-button .cost { font-size: 10px; }
+
+  /* Prose in a column-flow grid would be one word wide. */
+  .grid-note {
+    grid-row: 1;
+    width: 74vw;
+    max-width: none;
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  #messages { width: 62vw; }
+}
+
+/*
+ * Landscape on a phone: 664 by 390, so height is the scarce direction. The panel
+ * gives up its title row, and the objectives list gets a taller share of a
+ * shorter screen because there is nothing below it competing.
+ */
+@media (max-height: 460px) {
+  :root { --panel-h: 116px; }
+  #tool-title { display: none; }
+  #objectives-list { max-height: 44vh; }
+  /* Width is not short here, so the map can keep its size. */
+  #minimap-block { width: 150px; grid-template-columns: 74px minmax(0, 1fr); }
 }

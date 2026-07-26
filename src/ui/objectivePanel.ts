@@ -52,8 +52,14 @@ export class ObjectivePanel {
     const header = this.root.querySelector('#objectives-header') as HTMLElement;
     header.addEventListener('click', () => this.setCollapsed(!this.collapsed));
 
-    // A short screen has no room for a standing card; start it folded there.
-    this.setCollapsed(window.innerHeight < 620);
+    // A small screen has no room for a standing card; start it folded there.
+    //
+    // Height alone was the wrong test. A phone held upright is *tall* — an iPhone
+    // reports 664 points and a large one over 900 — so the card stood open on
+    // exactly the screens with least room for it, where it is also at its widest
+    // relative to the view and its goals wrap to three lines each. Narrow is the
+    // signal that matters, with the short-screen case kept for landscape.
+    this.setCollapsed(window.innerWidth < 760 || window.innerHeight < 620);
   }
 
   private setCollapsed(value: boolean): void {

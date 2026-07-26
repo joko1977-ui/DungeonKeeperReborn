@@ -266,6 +266,11 @@ function frame(): void {
   }
 
   rig.render();
+
+  // Straight after the render, while the frame can still be read back: does the
+  // post-processing chain actually put anything on screen on this device?
+  const blank = rig.selfCheck();
+  if (blank) game.notify(blank);
 }
 
 // Open on the briefing, the way the original opens on its scroll. Its dismiss

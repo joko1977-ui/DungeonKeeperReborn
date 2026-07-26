@@ -76,13 +76,18 @@ const GRADE_SHADER = {
  * silhouettes and object-against-object edges, and it deliberately does *not*
  * draw a line down every crease in a wall, which would turn a dungeon of stone
  * blocks into graph paper.
+ *
+ * It runs in linear space, before tone mapping, because of where the depth
+ * lives — see `InkPass` for why that is not negotiable.
  */
 const EDGE_SHADER = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     tDepth: { value: null as THREE.Texture | null },
     uTexel: { value: new THREE.Vector2(1 / 1280, 1 / 800) },
-    uStrength: { value: 0.85 },
+    // Applied to linear radiance, not to display values: a line has to be a big
+    // multiplicative cut here to survive tone mapping as a visible dark line.
+    uStrength: { value: 0.92 },
     uThreshold: { value: 0.055 },
     uNear: { value: 1 },
     uFar: { value: 200 },
@@ -130,6 +135,64 @@ const EDGE_SHADER = {
       gl_FragColor = vec4( base.rgb * ( 1.0 - ink * uStrength ), base.a );
     }`,
 };
+
+/**
+ * The ink pass, wired so it cannot read the buffer it is writing.
+ *
+ * This is the whole reason the outlines were invisible on desktop and turned the
+ * screen *black* on iOS, which is worth writing down because nothing about it is
+ * obvious from the outside.
+ *
+ * `EffectComposer` ping-pongs between two targets: it takes the one you hand it
+ * and clones it for the second. Two things follow from that, and together they
+ * are fatal.
+ *
+ * `RenderPass` renders the scene into the composer's *read* buffer, which is the
+ * clone — not the target we constructed and pointed the shader's `tDepth` at. So
+ * the depth we sampled belonged to a buffer the scene was never drawn into.
+ *
+ * And the clone's depth texture is not a second texture. `Texture.clone()` copies
+ * the `Source`, and three keys the GL texture off the source, so both targets were
+ * attached to the *same* depth buffer. Sampling it therefore meant sampling
+ * whatever framebuffer this pass was drawing into: a feedback loop, undefined
+ * behaviour, and the driver decides what you get. Chromium drops the draw
+ * (`GL_INVALID_OPERATION: Feedback loop formed between Framebuffer and active
+ * Texture`), so the write target keeps whatever it held and every pass after it —
+ * the SMAA resolve, and so the screen — comes out black.
+ *
+ * Two halves to the fix, and neither works alone. The constructor gives the second
+ * target a depth texture of its own, so the two are genuinely separate and the
+ * scene's depth is somewhere readable. This class then takes `tDepth` from
+ * `readBuffer` at render time: that is the buffer the previous pass drew into, it
+ * is never the buffer being written, and it tracks the ping-pong for free — which
+ * matters, because the number of swapping passes changes with the quality
+ * settings, so the parity is not fixed.
+ *
+ * The cost is position: the read buffer only holds the *scene* while this pass
+ * sits directly after `RenderPass`. So the ink now lands in linear radiance,
+ * before tone mapping, which gives up the "bloom cannot bleed over the lines"
+ * property the old late placement bought, and is why `uStrength` is a much deeper
+ * cut than display-space values would need.
+ */
+class InkPass extends ShaderPass {
+  constructor() {
+    super(EDGE_SHADER);
+  }
+
+  override render(
+    renderer: THREE.WebGLRenderer,
+    writeBuffer: THREE.WebGLRenderTarget,
+    readBuffer: THREE.WebGLRenderTarget,
+    deltaTime: number,
+    maskActive: boolean,
+  ): void {
+    // Late-bound on purpose. Which of the composer's two targets is the read
+    // buffer depends on how many swapping passes ran before this one, which
+    // depends on the quality settings, which change at runtime.
+    this.material.uniforms.tDepth.value = readBuffer.depthTexture ?? null;
+    super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  }
+}
 
 export interface QualitySettings {
   /** Bloom makes torches and lava read as light rather than paint. */
@@ -273,12 +336,34 @@ export class SceneRig {
   readonly environment: THREE.Texture;
   private readonly bloomPass: UnrealBloomPass | null;
   private readonly smaaPass: SMAAPass;
-  private readonly edgePass: ShaderPass;
+  private readonly edgePass: InkPass;
   private readonly gradePass: ShaderPass;
+  private readonly canvas: HTMLCanvasElement;
   private quality: QualitySettings;
+
+  /**
+   * The size to render at, taken from the canvas rather than from `window`.
+   *
+   * `window.innerHeight` and the height the canvas actually occupies are not the
+   * same number on a phone. iOS Safari's toolbars come and go, and `innerHeight`
+   * reports the large viewport while a `position: fixed` element is laid out
+   * against the small one — so sizing the drawing buffer from `window` renders a
+   * frame that is taller than the box it is being shown in, and the browser
+   * scales the difference away. The canvas's own client box is the truth.
+   */
+  private viewportSize(): { width: number; height: number } {
+    // Before layout has run the client box is 0, and a zero-sized drawing buffer
+    // is not something the rest of this survives. Fall back to the window then.
+    return {
+      width: this.canvas.clientWidth || window.innerWidth,
+      height: this.canvas.clientHeight || window.innerHeight,
+    };
+  }
 
   constructor(canvas: HTMLCanvasElement, quality = detectQuality()) {
     this.quality = quality;
+    this.canvas = canvas;
+    const { width, height } = this.viewportSize();
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -290,7 +375,7 @@ export class SceneRig {
       stencil: false,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(width, height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.7;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -316,9 +401,7 @@ export class SceneRig {
     // warm firelight in the foreground rather than as an absence of geometry.
     this.scene.fog = new THREE.FogExp2(0x0e1a20, 0.026);
 
-    this.camera = new THREE.PerspectiveCamera(
-      52, window.innerWidth / window.innerHeight, 0.35, 220,
-    );
+    this.camera = new THREE.PerspectiveCamera(52, width / height, 0.35, 220);
     this.camera.position.set(0, 18, 18);
 
     /* ---- lighting ---- */
@@ -360,19 +443,42 @@ export class SceneRig {
     this.scene.add(this.sun.target);
 
     /* ---- post-processing ---- */
-    // The composer needs its own target carrying a depth texture, because the
-    // ink pass reads scene depth and the default target does not keep it.
+    // The composer needs a target carrying a depth texture, because the ink pass
+    // reads scene depth and the default target does not keep it.
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const target = new THREE.WebGLRenderTarget(size.x, size.y, {
       type: THREE.HalfFloatType,
       depthTexture: new THREE.DepthTexture(size.x, size.y),
     });
     this.composer = new EffectComposer(this.renderer, target);
+    // Both halves of the ping-pong need a depth attachment, and they must not be
+    // the same one.
+    //
+    // Both, because which target the scene is rendered into alternates from frame
+    // to frame: the chain's swapping passes come to an odd number whenever SMAA is
+    // off, so the buffers do not come back around to where they started.
+    //
+    // Not the same one, because the composer built the second target by cloning
+    // the first, and a cloned texture keeps the original's `Source` — which is
+    // what three keys the GL texture off. So the "two" depth textures were one,
+    // attached to both targets at once, and the ink pass could not sample depth
+    // without sampling its own framebuffer. See `InkPass`.
+    this.composer.renderTarget2.depthTexture?.dispose();
+    this.composer.renderTarget2.depthTexture = new THREE.DepthTexture(size.x, size.y);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+
+    // Directly after the scene, and nowhere else: this is the only position in
+    // the chain where the buffer being read is the one the depth belongs to.
+    this.edgePass = new InkPass();
+    this.edgePass.enabled = quality.outlines;
+    this.edgePass.material.uniforms.uNear.value = this.camera.near;
+    this.edgePass.material.uniforms.uFar.value = this.camera.far;
+    this.edgePass.material.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
+    this.composer.addPass(this.edgePass);
 
     if (quality.bloom) {
       this.bloomPass = new UnrealBloomPass(
-        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        new THREE.Vector2(width, height),
         0.48, // strength — a glow around fire, not a haze over everything
         0.55, // radius
         0.78, // threshold: only genuinely hot things bloom
@@ -388,32 +494,26 @@ export class SceneRig {
     this.gradePass = new ShaderPass(GRADE_SHADER);
     this.composer.addPass(this.gradePass);
 
-    // Ink after the grade and before anti-aliasing: after, so bloom cannot
-    // bleed over the lines and soften them; before, so the lines themselves get
-    // smoothed instead of stair-stepping.
-    this.edgePass = new ShaderPass(EDGE_SHADER);
-    this.edgePass.enabled = quality.outlines;
-    this.edgePass.material.uniforms.tDepth.value = target.depthTexture;
-    this.edgePass.material.uniforms.uNear.value = this.camera.near;
-    this.edgePass.material.uniforms.uFar.value = this.camera.far;
-    this.edgePass.material.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
-    this.composer.addPass(this.edgePass);
-
     // Anti-aliasing last, on the graded image, so it smooths what is actually
     // on screen rather than something the grade then re-sharpens.
-    this.smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
+    this.smaaPass = new SMAAPass(width, height);
     this.smaaPass.enabled = quality.smaa;
     this.composer.addPass(this.smaaPass);
 
     window.addEventListener('resize', this.onResize);
+    // A phone changes the size of the view without ever firing `resize`: rotating
+    // it does, but scrolling the address bar away only moves the visual viewport.
+    window.visualViewport?.addEventListener('resize', this.onResize);
+    window.addEventListener('orientationchange', this.onResize);
   }
 
   private onResize = (): void => {
-    const w = window.innerWidth, h = window.innerHeight;
+    const { width: w, height: h } = this.viewportSize();
+    if (w <= 0 || h <= 0) return;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloomPass?.setSize(w, h);
     this.gradePass.setSize(w, h);
@@ -431,7 +531,66 @@ export class SceneRig {
   }
 
   render(): void {
+    if (this.bypassPost) {
+      // Straight to the canvas. Tone mapping and the sRGB conversion come back
+      // automatically here, because three applies both when the render target is
+      // the screen — it is the composer that needs `OutputPass` to do it.
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     this.composer.render();
+  }
+
+  /** Set when the post chain has been abandoned as unusable on this device. */
+  private bypassPost = false;
+  private selfCheckFrames = 0;
+  /** Late enough that the terrain, props and torches have all been built. */
+  private static readonly SELF_CHECK_AT = 30;
+
+  /**
+   * Look at what actually reached the screen, once, and bail out of the post
+   * chain if the answer is nothing.
+   *
+   * The insurance policy for a bug I cannot see. A multi-pass chain has a dozen
+   * ways to come out black that depend entirely on the driver — the depth-texture
+   * feedback loop above did exactly that, and the report that found it was "on
+   * iPhone I can't see anything", from a device I have no way to run. There is no
+   * error to catch and nothing in the logs; the frame is simply empty.
+   *
+   * So rather than trust the chain, read the middle of the canvas a few frames in.
+   * The view opens on the Dungeon Heart, which is a lit room with a glowing
+   * artefact in it, so black there is never correct and never ambiguous. If it is
+   * black, drop the whole chain and render the scene directly: no grade, no ink,
+   * no bloom, but a game you can see and play.
+   *
+   * Read straight after the render and inside the same task, while the back
+   * buffer is still there to read — the browser discards it once it composites.
+   */
+  selfCheck(): string | null {
+    if (this.bypassPost || this.selfCheckFrames > SceneRig.SELF_CHECK_AT) return null;
+    if (++this.selfCheckFrames !== SceneRig.SELF_CHECK_AT) return null;
+
+    const gl = this.renderer.getContext();
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const w = Math.min(32, size.x), h = Math.min(32, size.y);
+    if (w <= 0 || h <= 0) return null;
+    const pixels = new Uint8Array(w * h * 4);
+    gl.readPixels(
+      Math.floor((size.x - w) / 2), Math.floor((size.y - h) / 2), w, h,
+      gl.RGBA, gl.UNSIGNED_BYTE, pixels,
+    );
+
+    let brightest = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      brightest = Math.max(brightest, pixels[i], pixels[i + 1], pixels[i + 2]);
+    }
+    // Not zero: a driver may dither, and one stray unit is still black.
+    if (brightest > 3) return null;
+
+    this.bypassPost = true;
+    return 'The display effects came out blank on this device, so they have been'
+      + ' switched off. The game itself is unaffected.';
   }
 
   setQuality(quality: QualitySettings): void {
@@ -441,7 +600,11 @@ export class SceneRig {
     if (this.bloomPass) this.bloomPass.enabled = quality.bloom;
     this.smaaPass.enabled = quality.smaa;
     this.edgePass.enabled = quality.outlines;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
+    // Through the resize path, not `setPixelRatio` alone: that resizes the
+    // canvas's drawing buffer but leaves the composer's targets at their old
+    // size, so the last adaptive step-down bought nothing at all — every pass
+    // still ran at full resolution and only the final blit shrank.
+    this.onResize();
   }
 
   getQuality(): QualitySettings {
@@ -496,6 +659,8 @@ export class SceneRig {
 
   dispose(): void {
     window.removeEventListener('resize', this.onResize);
+    window.visualViewport?.removeEventListener('resize', this.onResize);
+    window.removeEventListener('orientationchange', this.onResize);
     this.composer.dispose();
     this.environment.dispose();
     this.renderer.dispose();
