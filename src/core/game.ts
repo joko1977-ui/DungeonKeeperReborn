@@ -361,6 +361,52 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   }
 
   /** True once the Lord has been announced — the UI shows a warning. */
+  /**
+   * Seconds until the next hero raid, and how close that is as a fraction.
+   *
+   * The raid timer existed and was invisible, which made the whole defensive half
+   * of the game reactive: you found out heroes were coming when they arrived, by
+   * which point siting a trap or hanging a door is too late to matter. A countdown
+   * turns the wait into the part of the game where you prepare.
+   */
+  secondsToNextWave(): number {
+    return Math.max(0, (this.nextHeroWave - this.tickCount) / TICKS_PER_SECOND);
+  }
+
+  /** 0 when a raid is far off, 1 as it lands — for anything that should get louder. */
+  waveImminence(): number {
+    const warning = 45;
+    const left = this.secondsToNextWave();
+    if (left >= warning) return 0;
+    return 1 - left / warning;
+  }
+
+  /**
+   * What the Lord of the Land is waiting for.
+   *
+   * He is the level's ending and the game said nothing about when he comes, so
+   * from the player's side he was a random interruption. He is not: he arrives
+   * once you have turned back raids and dug a dungeon worth the trip, or after a
+   * long fallback if you have been cautious. All three are reportable, so report
+   * them — a boss you can see coming is a deadline, and a deadline is a plan.
+   */
+  lordWatch(): {
+    summoned: boolean;
+    waves: number; wavesNeeded: number;
+    territory: number; territoryNeeded: number;
+    secondsToFallback: number;
+  } {
+    return {
+      summoned: this.lordSummoned,
+      waves: this.repelled,
+      wavesNeeded: LORD_MIN_WAVES,
+      territory: this.territoryOf(Owner.Player),
+      territoryNeeded: LORD_MIN_TERRITORY,
+      secondsToFallback: Math.max(
+        0, LORD_FALLBACK_SECONDS - this.tickCount / TICKS_PER_SECOND),
+    };
+  }
+
   lordIsComing(): boolean {
     return this.lordSummoned && !this.lordKilled;
   }

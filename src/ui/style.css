@@ -454,6 +454,14 @@ html, body {
 }
 
 #topbar .chip b { color: var(--text); font-weight: normal; }
+
+/* The raid clock, once it is close enough to matter. */
+#topbar .chip.urgent {
+  border-color: var(--danger);
+  background: rgba(60, 12, 8, 0.85);
+  animation: pulse-warn 1.1s ease-in-out infinite;
+}
+#topbar .chip.urgent b { color: #ff9a86; }
 #topbar button { pointer-events: auto; }
 
 .icon-button {
@@ -673,6 +681,13 @@ html, body {
 }
 #objectives-banner.hidden { display: none; }
 
+/* Waiting on conditions reads as information; on his way reads as an alarm. */
+#objectives-banner.imminent {
+  color: #ffc9a0;
+  border-color: var(--danger);
+  animation: pulse-warn 1.4s ease-in-out infinite;
+}
+
 #objectives-list {
   list-style: none;
   margin: 0;
@@ -794,8 +809,11 @@ dl.objectives.outcome dt.missed { color: var(--text-dim); }
     font-size: 11px;
   }
   #topbar .chip { padding: 2px 6px; white-space: nowrap; }
-  /* The frame counter is a developer's readout, and the first thing to go. */
+  /* The frame counter is a developer's readout, and the first thing to go. Payday
+     follows it: a raid you are not ready for ends the level, and a payday you are
+     not ready for costs you a creature. */
   #topbar #chip-fps { display: none; }
+  #topbar #chip-payday { display: none; }
   #topbar .icon-button { padding: 7px 8px; font-size: 11px; }
 
   /* Below the strip, narrow, and folded until asked for. */

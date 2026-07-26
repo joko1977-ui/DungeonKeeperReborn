@@ -12,6 +12,7 @@ import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
 import { DungeonDressing } from './render/dressing';
 import { LandmarkRenderer } from './render/landmarks';
+import { ThreatPath } from './render/threatPath';
 import { LavaGlow } from './render/lavaGlow';
 import { ParticleSystem, TorchSystem } from './render/effects';
 import { SceneRig, detectQuality } from './render/scene';
@@ -49,6 +50,7 @@ const roomProps = new RoomPropRenderer(game.map);
 const devices = new DeviceRenderer(game.map);
 const landmarks = new LandmarkRenderer(game.map);
 const dressing = new DungeonDressing(game.map);
+const threat = new ThreatPath(game.map, game.rooms);
 const atmosphere = new Atmosphere();
 const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
@@ -60,6 +62,7 @@ rig.scene.add(roomProps.group);
 rig.scene.add(devices.group);
 rig.scene.add(landmarks.group);
 rig.scene.add(dressing.group);
+rig.scene.add(threat.group);
 rig.scene.add(atmosphere.group);
 rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
@@ -106,6 +109,7 @@ topbar.innerHTML = `
   <span class="title">Dungeon Keeper Reborn</span>
   <span class="spacer"></span>
   <span class="chip" id="chip-payday">Payday in <b>—</b></span>
+  <span class="chip" id="chip-raid">Heroes in <b>—</b></span>
   <span class="chip" id="chip-fps"><b>—</b> fps</span>
   <button class="icon-button" id="btn-sound" title="Mute or unmute all sound">Sound</button>
   <button class="icon-button" id="btn-voice" title="Silence the narrator">Narrator</button>
@@ -114,6 +118,8 @@ topbar.innerHTML = `
 uiRoot.appendChild(topbar);
 
 const paydayChip = topbar.querySelector('#chip-payday b') as HTMLElement;
+const raidChip = topbar.querySelector('#chip-raid') as HTMLElement;
+const raidValue = raidChip.querySelector('b') as HTMLElement;
 const fpsChip = topbar.querySelector('#chip-fps b') as HTMLElement;
 const pauseButton = topbar.querySelector('#btn-pause') as HTMLButtonElement;
 const helpButton = topbar.querySelector('#btn-help') as HTMLButtonElement;
@@ -210,6 +216,8 @@ function frame(): void {
   devices.update(time, game.gasTiles());
   landmarks.syncIfDirty();
   dressing.syncIfDirty();
+  threat.syncIfDirty();
+  threat.update(time, game.waveImminence());
   landmarks.update(time, camera.getDistance());
   atmosphere.update(dt, camera.target, time);
   lavaGlow.syncIfDirty();
@@ -242,6 +250,13 @@ function frame(): void {
   }
 
   paydayChip.textContent = hud.paydayCountdown();
+
+  // The raid clock. It goes red as the wave lands, because that is the window in
+  // which hanging a door or dropping a trap still changes the outcome.
+  const raidLeft = game.secondsToNextWave();
+  const mins = Math.floor(raidLeft / 60);
+  raidValue.textContent = `${mins}:${String(Math.floor(raidLeft % 60)).padStart(2, '0')}`;
+  raidChip.classList.toggle('urgent', raidLeft < 45);
 
   frameCount++;
   fpsAccumulator += dt;
@@ -314,7 +329,7 @@ window.dk = { game, camera, rig, audio, narrator, director };
 // Judging a creature against a wall of glowing lava is judging the lava.
 window.dk.groups = {
   terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
-  landmarks: landmarks.group, dressing: dressing.group,
+  landmarks: landmarks.group, dressing: dressing.group, threat: threat.group,
   atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
   torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
   hand: hand.group,
@@ -341,6 +356,7 @@ if (import.meta.hot) {
     devices.dispose();
     landmarks.dispose();
     dressing.dispose();
+    threat.dispose();
     atmosphere.dispose();
     lavaGlow.dispose();
     creatureRenderer.dispose();

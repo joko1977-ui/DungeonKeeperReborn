@@ -254,10 +254,23 @@ const GEMS: MaterialRecipe = {
 /** Impenetrable bedrock: near-black, almost featureless, deliberately grim. */
 const BEDROCK: MaterialRecipe = {
   name: 'bedrock',
-  height: (x, y, rnd) => clamp01(cellular(x * 3, y * 3, 3, rnd) * 0.8 + fbm(x * 10, y * 10, 3, 10, rnd) * 0.3),
+  /*
+   * The one wall you cannot dig, and it has to say so without a word.
+   *
+   * It used to be "the same rock but darker", which is not a signal — the dungeon
+   * is full of dark rock and half of it is diggable. So bedrock is now a different
+   * *material*: near-black, blue rather than warm, and banded with hard horizontal
+   * strata that nothing else on the map has. Between the colour, the strata and
+   * the extra height the wall mesh gives it, a player learns in one glance which
+   * walls are worth tagging, and never has to learn it again from a failed order.
+   */
+  height: (x, y, rnd) => {
+    const strata = Math.abs(((y * 5 + fbm(x * 4, y * 4, 2, 4, rnd) * 0.6) % 1) - 0.5) * 2;
+    return clamp01(strata * 0.7 + cellular(x * 3, y * 3, 3, rnd) * 0.35);
+  },
   color: (h) => {
-    const v = lerp(0.05, 0.16, h);
-    return [v, v * 0.98, v * 1.05];
+    const v = lerp(0.030, 0.115, h);
+    return [v * 0.78, v * 0.88, v * 1.30];
   },
   roughness: () => 0.99,
 };

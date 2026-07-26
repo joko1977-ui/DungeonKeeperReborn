@@ -73,7 +73,8 @@ export class ObjectivePanel {
     const lordComing = this.game.lordIsComing();
     const signature = objectives
       .map((o) => `${o.id}:${o.done ? 1 : 0}:${Math.round(objectiveProgress(o) * 50)}`)
-      .join('|') + `#${lordComing ? 1 : 0}`;
+      .join('|') + `#${lordComing ? 1 : 0}`
+      + `#${this.game.wavesRepelled()}:${Math.floor(this.game.lordWatch().secondsToFallback / 30)}`;
     if (signature === this.lastSignature) return;
     this.lastSignature = signature;
 
@@ -82,9 +83,34 @@ export class ObjectivePanel {
     count.textContent = remaining === 0 ? 'all done' : `${remaining} to go`;
     count.classList.toggle('done', remaining === 0);
 
-    // The Lord's approach is the level's turning point; it gets its own line.
-    this.banner.classList.toggle('hidden', !lordComing);
-    if (lordComing) this.banner.textContent = 'The Lord of the Land is coming.';
+    /*
+     * The Lord's approach is the level's turning point, and until now the banner
+     * only appeared once he was already on his way — which told the player about a
+     * deadline at the moment it expired. He is not random: he comes once you have
+     * turned back raids and dug a dungeon worth the trip, or after a long fallback
+     * if you have been cautious. So the banner shows what he is waiting for, and
+     * the player can decide whether to hurry it along or hold him off.
+     */
+    const lord = this.game.lordWatch();
+    const wantsLord = objectives.some((o) => o.kind === 'defeat-lord');
+    this.banner.classList.toggle('hidden', !wantsLord);
+    this.banner.classList.toggle('imminent', lordComing);
+    if (lordComing) {
+      this.banner.textContent = 'The Lord of the Land is coming.';
+    } else if (wantsLord) {
+      const need: string[] = [];
+      if (lord.waves < lord.wavesNeeded) {
+        need.push(`repel ${lord.wavesNeeded - lord.waves} more raid`
+          + (lord.wavesNeeded - lord.waves === 1 ? '' : 's'));
+      }
+      if (lord.territory < lord.territoryNeeded) {
+        need.push(`claim ${lord.territoryNeeded - lord.territory} more tiles`);
+      }
+      const mins = Math.ceil(lord.secondsToFallback / 60);
+      this.banner.textContent = need.length > 0
+        ? `The Lord comes when you ${need.join(' and ')} — or in ${mins} min regardless.`
+        : 'The Lord of the Land will be here shortly.';
+    }
 
     this.list.innerHTML = objectives
       .map((o) => this.row(o))

@@ -38,9 +38,19 @@ export function showBriefing(
           dig it out; claim what they dig and the dungeon becomes yours. Build
           a lair and a hatchery, and creatures will come to you through the
           portal — feed them, pay them, and they may even fight for you when the
-          heroes arrive. They always arrive.
+          heroes arrive. They always arrive — along the line of orange arrows, from
+          their gate to your heart, which is where a trap earns its keep. The Lord
+          of the Land comes last, once you have turned back enough of them.
         </p>
         ${briefingObjectives(objectives)}`}
+      <h3 class="brief-heading">Reading the dungeon</h3>
+      <dl class="keys">
+        <dt>Warm brown rock</dt><dd>Diggable. Tag it and your imps will cut through</dd>
+        <dt>Tall blue-black rock</dt><dd>Bedrock. Nothing digs it — it is the edge of the world</dd>
+        <dt>Orange arrows</dt><dd>The way the heroes will come. Put your traps and doors on it</dd>
+        <dt>Shafts of light</dt><dd>A Dungeon Heart or a portal, in its owner's colour</dd>
+        <dt>Heroes in…</dt><dd>The raid clock, top right. It turns red when the wave is close</dd>
+      </dl>
       <dl class="keys">
         <dt>Left click</dt><dd>Tag walls for excavation — drag to tag a whole slab</dd>
         <dt>Left click</dt><dd>Snatch up one of your creatures; click again to drop it on your floor</dd>

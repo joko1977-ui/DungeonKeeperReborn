@@ -402,7 +402,19 @@ export class TerrainRenderer {
           // Natural rock gets a little height and yaw variation; masonry a
           // keeper has reinforced stays square, because it was cut square.
           const dressed = terrain === Terrain.Wall;
-          const h = dressed ? 1 : 0.92 + tileNoise(i, 1) * 0.16;
+          /*
+           * Bedrock stands taller than anything an imp can dig.
+           *
+           * Colour alone was not carrying it: a player looked at a wall of dark
+           * rock and had no way to tell an hour of digging from an order that
+           * would silently never be taken. Height is the signal that works from
+           * this camera, because it changes the *skyline* — the impassable edge of
+           * a cavern now reads as a cliff standing over the diggable rock beside
+           * it, and you can see at a glance where the map ends.
+           */
+          const bedrock = terrain === Terrain.Rock;
+          const h = bedrock ? 1.42
+            : dressed ? 1 : 0.92 + tileNoise(i, 1) * 0.16;
           const spin = dressed ? 0 : (Math.floor(tileNoise(i, 2) * 4) * Math.PI) / 2;
           dummy.position.set(x, 0, y);
           dummy.rotation.set(0, spin, 0);
@@ -414,6 +426,12 @@ export class TerrainRenderer {
           // Reinforced walls wear their keeper's colour.
           if (dressed && owner !== Owner.None) {
             color.setHex(OWNER_COLORS[owner]).lerp(new THREE.Color(0xffffff), 0.45);
+          } else if (bedrock) {
+            // Cold and flat. Bedrock should not shimmer with the same warm
+            // variation the diggable rock has; being *uniform* is part of how it
+            // reads as one solid mass rather than as blocks.
+            const v = 0.72 + tileNoise(i, 3) * 0.10;
+            color.setRGB(v * 0.86, v * 0.94, v * 1.12);
           } else {
             // Break up the mass: identical instances of one texture still read
             // as a repeat, and a few percent of brightness scatter hides it.
