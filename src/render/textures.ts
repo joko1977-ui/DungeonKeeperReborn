@@ -101,15 +101,20 @@ const ROCK: MaterialRecipe = {
     return clamp01(cells * 0.65 + fbm(x * 8, y * 8, 4, 8, rnd) * 0.45);
   },
   color: (h, x, y, rnd) => {
-    // Volcanic basalt, to the brief: #2A1F1A at the low end, #3D2E28 at the
-    // high. Warm-dark rather than neutral grey — clean medieval stone is
-    // explicitly off the table.
+    // Basalt, and cool.
+    //
+    // This was warm-dark brown, on the principle that clean medieval grey stone
+    // is off the table. It still is — but brown rock under orange firelight with
+    // a warm grade over the top gave every surface in the game the same hue, and
+    // an image with one hue in it has no depth however carefully it is lit. Real
+    // basalt is blue-grey; warm light falling on it reads *as warm light*, and the
+    // faces the fire misses fall cool. That contrast is the whole look.
     const grit = fbm(x * 26, y * 26, 3, 26, rnd);
     const t = clamp01(h * lerp(0.86, 1.14, grit));
     return [
-      lerp(0.165, 0.239, t),
-      lerp(0.122, 0.180, t),
-      lerp(0.102, 0.157, t),
+      lerp(0.101, 0.192, t),
+      lerp(0.110, 0.206, t),
+      lerp(0.128, 0.231, t),
     ];
   },
   roughness: (h) => lerp(0.90, 0.75, h),
@@ -132,10 +137,12 @@ const EARTH: MaterialRecipe = {
     // dirt on the lens.
     const grit = fbm(x * 30, y * 30, 2, 30, rnd);
     const t = clamp01(h * lerp(0.85, 1.12, grit));
+    // Packed soil keeps a little more warmth than the rock around it — that
+    // difference is how a dug face reads as freshly dug.
     return [
-      lerp(0.165, 0.239, t),
-      lerp(0.122, 0.180, t),
-      lerp(0.102, 0.157, t),
+      lerp(0.140, 0.243, t),
+      lerp(0.126, 0.213, t),
+      lerp(0.116, 0.190, t),
     ];
   },
   roughness: () => 0.9,
@@ -148,14 +155,19 @@ const GOLD: MaterialRecipe = {
     fbm(x * 5, y * 5, 4, 5, rnd) * 0.6 + cellular(x * 6, y * 6, 6, rnd) * 0.4,
   ),
   color: (h, x, y, rnd) => {
+    // Seams, not a wall of gold. At a 0.56 threshold and an albedo peaking at
+    // pure yellow, an ore wall was the brightest surface in the game and there
+    // are dozens of them: whole quarters of the map read as sheets of flame, and
+    // the eye had nothing to settle on. Rarer and darker, with the metal doing its
+    // work through specular highlights instead of raw brightness.
     const vein = fbm(x * 9 + 3.1, y * 9, 3, 9, rnd);
-    const isVein = vein > 0.56;
+    const isVein = vein > 0.66;
     if (isVein) {
-      const t = clamp01((vein - 0.56) * 5);
-      return [lerp(0.45, 1.00, t), lerp(0.32, 0.78, t), lerp(0.08, 0.22, t)];
+      const t = clamp01((vein - 0.66) * 5);
+      return [lerp(0.30, 0.72, t), lerp(0.21, 0.53, t), lerp(0.06, 0.17, t)];
     }
-    const v = lerp(0.14, 0.32, h);
-    return [v * 1.05, v * 0.92, v * 0.74];
+    const v = lerp(0.11, 0.26, h);
+    return [v * 0.88, v * 0.95, v * 1.08];
   },
   roughness: (h) => lerp(0.9, 0.35, h),
 };
@@ -227,8 +239,10 @@ const FLAGSTONE: MaterialRecipe = {
   color: (h, x, y, rnd) => {
     const grit = fbm(x * 22, y * 22, 3, 22, rnd);
     const t = clamp01(h * lerp(0.86, 1.12, grit));
+    // Cool flags, so the torchlight crossing them has somewhere to land. This is
+    // the most common surface in the game and it was setting the scene's hue.
     const stone: [number, number, number] = [
-      lerp(0.102, 0.239, t), lerp(0.078, 0.180, t), lerp(0.071, 0.157, t),
+      lerp(0.094, 0.200, t), lerp(0.102, 0.214, t), lerp(0.118, 0.239, t),
     ];
     // Molten rock showing through the cracks between the flags.
     const glow = crackGlow(x, y, rnd);

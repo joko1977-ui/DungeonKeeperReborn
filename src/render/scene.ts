@@ -18,14 +18,24 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 const GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uSaturation: { value: 1.22 },
-    uContrast: { value: 1.26 },
+    uSaturation: { value: 1.24 },
+    uContrast: { value: 1.22 },
+    /** Where the contrast pivots. Measured: a lit dungeon frame sits near 0.09. */
+    uPivot: { value: 0.16 },
     // Teal shadows, warm highlights: the oldest trick there is, and the one the
     // all-warm pass threw away. Lift is cool, gain is warm, so the two ends of
     // the range pull apart instead of agreeing.
-    uLift: { value: new THREE.Vector3(0.004, 0.013, 0.020) },
-    uGain: { value: new THREE.Vector3(1.10, 1.0, 0.90) },
-    uVignette: { value: 0.44 },
+    uLift: { value: new THREE.Vector3(0.006, 0.030, 0.072) },
+    // Very nearly neutral now. Gaining red and cutting blue across the *whole
+    // frame* is not warm lighting, it is a tint over the lens: it pushed the
+    // firelight to orange, the shadows it was supposed to leave cool to brown,
+    // and the creatures' own colours into the same narrow band as the walls.
+    // Warmth belongs to the lights, which are already warm. What the grade should
+    // do is keep the darks cool, which the lift does.
+    uGain: { value: new THREE.Vector3(1.03, 1.0, 1.0) },
+    // Eased off: with the fog now genuinely cool and dark, a heavy vignette on
+    // top of it closed the frame down to a keyhole at wide zooms.
+    uVignette: { value: 0.34 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -37,6 +47,7 @@ const GRADE_SHADER = {
     uniform sampler2D tDiffuse;
     uniform float uSaturation;
     uniform float uContrast;
+    uniform float uPivot;
     uniform vec3 uLift;
     uniform vec3 uGain;
     uniform float uVignette;
@@ -46,15 +57,27 @@ const GRADE_SHADER = {
       vec4 texel = texture2D( tDiffuse, vUv );
       vec3 c = texel.rgb;
 
-      // Lift and gain: cool the shadows, warm the highlights.
-      c = c * uGain + uLift * ( 1.0 - c );
+      c *= uGain;
 
-      // Contrast about mid grey.
-      c = ( c - 0.5 ) * uContrast + 0.5;
+      // Contrast about the scene's own mid-tone, not about mid grey.
+      //
+      // This is what was destroying the colour. A torchlit dungeon averages
+      // around 0.08, so pivoting a 1.26x contrast at 0.5 pushed everything below
+      // 0.106 to black — which is most of the frame, and *all* of the blue and
+      // green in it, since those channels are the dim ones under firelight. The
+      // measured result was an average pixel of (22, 4, 1): not a warm image, an
+      // image with two of its channels clipped off. Pivot where the picture
+      // actually sits and the shadows keep their hue.
+      c = ( c - uPivot ) * uContrast + uPivot;
+      c = max( c, vec3( 0.0 ) );
 
       // Saturation about luminance.
       float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
       c = mix( vec3( l ), c, uSaturation );
+
+      // Cool the darks — after the contrast, so the contrast cannot crush the
+      // very floor the lift is there to establish.
+      c += uLift * ( 1.0 - smoothstep( 0.0, 0.35, l ) );
 
       // Vignette, to keep the eye in the middle of the dungeon.
       float d = distance( vUv, vec2( 0.5 ) );
@@ -377,7 +400,9 @@ export class SceneRig {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
     this.renderer.setSize(width, height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.7;
+    // Down from 1.7: the warm highlights were clipping, and a clipped warm
+    // highlight is a flat orange patch with no shape in it.
+    this.renderer.toneMappingExposure = 1.5;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -399,7 +424,7 @@ export class SceneRig {
     // Exponential fog swallows the far side of the map — you only ever see your
     // own lit corner. Tinted cool, so distance reads as cold depth against the
     // warm firelight in the foreground rather than as an absence of geometry.
-    this.scene.fog = new THREE.FogExp2(0x0e1a20, 0.026);
+    this.scene.fog = new THREE.FogExp2(0x0b1521, 0.027);
 
     this.camera = new THREE.PerspectiveCamera(52, width / height, 0.35, 220);
     this.camera.position.set(0, 18, 18);
@@ -415,16 +440,27 @@ export class SceneRig {
     // and the image went flat. The fire stays warm — it is still the only light
     // anything is *lit by* — but the shadows it does not reach fall cool, which
     // is what gives a fire-lit room its depth.
-    const ambient = new THREE.AmbientLight(0x24404c, 1.35);
+    const ambient = new THREE.AmbientLight(0x2f5165, 1.75);
     this.scene.add(ambient);
 
-    // Cool from above, warm bounce from the molten floor.
-    const hemi = new THREE.HemisphereLight(0x3a6c7e, 0x8a3a10, 1.6);
+    // Cool from above, warm bounce from the molten floor — but much less of the
+    // bounce than there was. At 1.6 with a saturated orange ground colour this
+    // was lighting every underside in the dungeon warm, which left nothing cool
+    // anywhere in the frame and no direction to the light either.
+    const hemi = new THREE.HemisphereLight(0x5c95ae, 0x6e381c, 1.25);
     this.scene.add(hemi);
 
     // The key is firelight from high up, around 2000 K. It exists to read
     // silhouettes and cast shadows; it must never suggest a sky.
-    this.sun = new THREE.DirectionalLight(0xff9040, 1.15);
+    // Deliberately weak for a key light, and this is the crux of the whole
+    // rebalance. A directional light has no falloff: it reaches every surface in
+    // the dungeon equally, so a *strong* warm one guarantees there is nowhere for
+    // anything to fall cool — which is exactly what the measurement said, 98% of
+    // the lit frame warm and 1% cool. Turned down, it does the job it is actually
+    // needed for, which is throwing shadows and giving the wall tops a direction,
+    // and leaves the torches to be the light you notice and the cool fill to hold
+    // everything they do not reach.
+    this.sun = new THREE.DirectionalLight(0xffab68, 0.95);
     this.sun.position.set(14, 30, 10);
     this.sun.castShadow = quality.shadows;
     if (quality.shadows) {
@@ -479,9 +515,9 @@ export class SceneRig {
     if (quality.bloom) {
       this.bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
-        0.48, // strength — a glow around fire, not a haze over everything
+        0.42, // strength — a glow around fire, not a haze over everything
         0.55, // radius
-        0.78, // threshold: only genuinely hot things bloom
+        0.86, // threshold: only genuinely hot things bloom
       );
       this.composer.addPass(this.bloomPass);
     } else {
