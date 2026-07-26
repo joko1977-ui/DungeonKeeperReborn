@@ -15,6 +15,7 @@ import { makeGlowTexture } from './textures';
 
 import { PartBuilder } from './creatureModels';
 import { addRimLight, celRamp } from './celRamp';
+import { Gait, angleDelta, gaitFor, strike } from './gait';
 
 /** A bulging sack with coins spilling over the tie. */
 function buildGoldSack(): THREE.BufferGeometry {
@@ -81,6 +82,16 @@ export class CreatureRenderer {
   private readonly sackMaterial: THREE.MeshToonMaterial;
 
   private readonly dummy = new THREE.Object3D();
+  /**
+   * Rendered facing per creature, chasing the simulated one.
+   *
+   * The simulation sets `facing` the instant a path bends, so a creature rounding
+   * a corner snapped through ninety degrees in a single frame — the one motion
+   * artefact you cannot unsee once you have noticed it. Render-side only: the AI
+   * must keep its exact heading, because pathing and attack ranges are computed
+   * from it, and a creature that shot at where it was *turning* would be a bug.
+   */
+  private readonly renderYaw = new Map<number, number>();
   private readonly limbDummy = new THREE.Object3D();
   /** Scratch for copying a body matrix onto its rank kit. */
   private readonly matrix = new THREE.Matrix4();
@@ -342,6 +353,18 @@ export class CreatureRenderer {
         if (batch.aura.instanceColor) batch.aura.instanceColor.needsUpdate = true;
       }
 
+      // Creature ids are unique for the life of a level, so the yaw table would
+      // otherwise accumulate an entry for every creature that ever existed.
+      if (this.renderYaw.size > 512) {
+        const live = new Set<number>();
+        for (const b of this.batches.values()) {
+          for (const c of this.pickTable.get(b.body) ?? []) live.add(c.id);
+        }
+        for (const id of this.renderYaw.keys()) {
+          if (!live.has(id)) this.renderYaw.delete(id);
+        }
+      }
+
       batch.body.count = list.length;
       batch.eyes.count = list.length;
       batch.ring.count = list.length;
@@ -366,12 +389,16 @@ export class CreatureRenderer {
     const spec = CREATURE_SPECS[c.type];
     const { dummy } = this;
 
-    // Gait phase advances with actual movement, so walkers don't moonwalk.
+    const gait = gaitFor(c.type);
+
+    // Gait phase advances with actual movement, so walkers don't moonwalk, and at
+    // the species' own cadence rather than one shared number — a troll taking imp
+    // steps was most of why the roster moved alike.
     const moving = c.state === CreatureState.Walking
       || c.state === CreatureState.Hauling
       || c.state === CreatureState.LeavingDungeon
       || (c.state === CreatureState.Fighting && c.path !== null);
-    c.animPhase += dt * (moving ? spec.speed * 3.4 : 1.6);
+    c.animPhase += dt * (moving ? spec.speed * gait.cadence : 1.6);
 
     const scale = spec.scale * rankScale(c.level);
     let y = c.z;
@@ -382,21 +409,37 @@ export class CreatureRenderer {
     switch (c.state) {
       case CreatureState.Walking:
       case CreatureState.Hauling:
-      case CreatureState.LeavingDungeon:
-        y += Math.abs(Math.sin(c.animPhase)) * 0.055;
-        lean = 0.13;
-        roll = Math.sin(c.animPhase) * 0.06;
+      case CreatureState.LeavingDungeon: {
+        /*
+         * Squash and stretch, which is the difference between a body walking and
+         * a model being slid along the floor.
+         *
+         * The rise and fall was here already; what was missing is that a mass
+         * moving under gravity does not keep its shape. It flattens as it lands
+         * and draws out as it leaves, and — this is the part that matters — its
+         * volume is conserved, so it widens exactly as much as it shortens.
+         * Without the widening a creature just gets smaller on the beat, which
+         * reads as a distance change rather than as weight.
+         */
+        const rise = Math.abs(Math.sin(c.animPhase));
+        y += rise * gait.bob;
+        lean = gait.lean;
+        roll = Math.sin(c.animPhase) * gait.roll;
+        squash = 1 + (rise - 0.5) * 2 * gait.squash;
         break;
+      }
       case CreatureState.Digging:
-        // Rhythmic lunge into the rock face.
-        lean = 0.35 + Math.sin(c.animPhase * 5) * 0.28;
-        y += Math.abs(Math.sin(c.animPhase * 5)) * 0.03;
+        // A swing at the rock: fast out, slow back, not a gentle oscillation.
+        lean = 0.12 + strike(c.animPhase * 0.8) * 0.62;
+        y += strike(c.animPhase * 0.8) * 0.05;
+        squash = 1 - strike(c.animPhase * 0.8) * 0.08;
         break;
       case CreatureState.Claiming:
         lean = 0.22 + Math.sin(c.animPhase * 3) * 0.12;
         break;
       case CreatureState.Fighting:
-        lean = 0.18 + Math.sin(c.animPhase * 7) * 0.30;
+        lean = 0.10 + strike(c.animPhase * 1.1) * 0.55;
+        squash = 1 - strike(c.animPhase * 1.1) * 0.10;
         break;
       case CreatureState.Sleeping:
         // Curled up and breathing.
@@ -425,19 +468,36 @@ export class CreatureRenderer {
         y -= c.stateTimer * 0.012;
         break;
       default:
-        // Idle: a slow breath plus an occasional glance around.
-        y += Math.sin(time * 1.8 + c.seed * 7) * 0.012;
+        // Idle: a slow breath plus an occasional glance around. The breath
+        // squashes as well as lifts, so a standing creature is never quite still.
+        y += Math.sin(time * 1.8 + c.seed * 7) * gait.breath;
+        squash = 1 + Math.sin(time * 1.8 + c.seed * 7) * gait.breath * 0.9;
         roll = Math.sin(time * 0.7 + c.seed * 3) * 0.04;
         break;
     }
 
     if (spec.flying) y += 0.10 + Math.sin(time * 3.1 + c.seed * 4) * 0.05;
 
+    const yaw = this.smoothYaw(c, gait, dt);
     dummy.position.set(c.x, y, c.y);
-    dummy.rotation.set(lean, Math.PI / 2 - c.facing, roll, 'YXZ');
-    dummy.scale.set(scale, scale * squash, scale);
+    dummy.rotation.set(lean, yaw, roll, 'YXZ');
+    // Volume-preserving: what it loses in height it gains around the middle.
+    const widen = 1 / Math.sqrt(squash);
+    dummy.scale.set(scale * widen, scale * squash, scale * widen);
     dummy.updateMatrix();
     batch.body.setMatrixAt(n, dummy.matrix);
+
+    /*
+     * The eyes lead the turn.
+     *
+     * A head arriving before the body is how animation shows intent — you look
+     * where you are going first and then follow. The eyes are already their own
+     * instanced mesh, so this costs one extra matrix and nothing else, and it is
+     * the small thing that stops a creature reading as a rigid puppet.
+     */
+    const anticipate = angleDelta(yaw, Math.PI / 2 - c.facing) * 0.45;
+    dummy.rotation.set(lean, yaw + anticipate, roll, 'YXZ');
+    dummy.updateMatrix();
     batch.eyes.setMatrixAt(n, dummy.matrix);
 
     // Wounded creatures darken toward red; haste tints them hot.
@@ -475,6 +535,29 @@ export class CreatureRenderer {
     d2.scale.set(shadowScale, 1, shadowScale);
     d2.updateMatrix();
     batch.shadow.setMatrixAt(n, d2.matrix);
+  }
+
+  /**
+   * Chase the simulated heading at the species' own turn rate.
+   *
+   * Kept in a map keyed by creature id rather than on the creature, because the
+   * creature belongs to the simulation and this is a rendering detail — one that
+   * must not exist on a headless run and must not be part of a saved game.
+   */
+  private smoothYaw(c: Creature, gait: Gait, dt: number): number {
+    const target = Math.PI / 2 - c.facing;
+    const current = this.renderYaw.get(c.id);
+    if (current === undefined) {
+      this.renderYaw.set(c.id, target);
+      return target;
+    }
+    const delta = angleDelta(current, target);
+    // Framerate-independent chase: the same fraction of the gap per second
+    // however often this runs, so a 144Hz display does not turn faster.
+    const step = 1 - Math.exp(-gait.turn * dt);
+    const next = current + delta * step;
+    this.renderYaw.set(c.id, next);
+    return next;
   }
 
   /** Lay out one creature's limbs. Returns the next free limb instance slot. */
