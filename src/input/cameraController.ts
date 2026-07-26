@@ -3,17 +3,15 @@ import * as THREE from 'three';
 /**
  * The keeper's-eye camera.
  *
- * Orbits a point on the dungeon floor, the way the original's view does: you
- * push the focus around the map, spin it freely, and drop closer to the ground.
- * All values are smoothed toward a target so a keypress produces a glide rather
- * than a jolt.
+ * Looks down on the dungeon from high up, tilted just enough that walls still
+ * have height and faces. You push the focus around the map, spin it, and zoom;
+ * the tilt itself does not move.
  *
- * This was locked to a strict isometric projection for a while — orthographic,
- * pitch welded at 30 degrees, rotation in quarter steps. It was faithful to an
- * isometric brief and wrong for this game: you could not lean in to watch a
- * fight, could not look along a corridor you were digging, and could not see
- * past a wall without turning the whole board. The original had a free camera
- * and it needed one.
+ * Perspective, not orthographic — an isometric build of this was tried and the
+ * flatness was the problem, so convergence stays. But the pitch is fixed on
+ * purpose: with a free tilt you spend the game fighting the camera to see over
+ * a wall, and every room looks like a different room depending on where you
+ * happen to be standing. Fixed height, free spin, free zoom.
  *
  * Left and right mouse buttons are deliberately untouched — those belong to the
  * Hand of Evil. Rotation lives on the middle button and on Q/E.
@@ -23,6 +21,13 @@ import * as THREE from 'three';
  * thing you do most, so it gets the single finger; panning, pinching and
  * twisting all live on the two-finger gesture.
  */
+/**
+ * The tilt, in radians above the horizon. Near enough 62 degrees: mostly
+ * overhead, with enough lean left that a wall reads as a solid block rather
+ * than as a line on the floor.
+ */
+export const FIXED_PITCH = 1.09;
+
 export class CameraController {
   /** Point on the floor the camera looks at. */
   readonly target = new THREE.Vector3(0, 0, 0);
@@ -30,8 +35,12 @@ export class CameraController {
   private readonly desiredTarget = new THREE.Vector3();
   private yaw = Math.PI * 0.25;
   private desiredYaw = Math.PI * 0.25;
-  private pitch = 0.92;
-  private desiredPitch = 0.92;
+  /**
+   * Fixed. Looking down from high up with just enough tilt to keep the walls
+   * three-dimensional — you can see the tops of things and a sliver of their
+   * near faces, and nothing hides behind a wall.
+   */
+  private readonly pitch = FIXED_PITCH;
   private distance = 22;
   private desiredDistance = 22;
 
@@ -54,8 +63,6 @@ export class CameraController {
 
   static readonly MIN_DISTANCE = 6;
   static readonly MAX_DISTANCE = 46;
-  static readonly MIN_PITCH = 0.30;
-  static readonly MAX_PITCH = 1.45;
 
   constructor(camera: THREE.PerspectiveCamera, element: HTMLElement, mapW: number, mapH: number) {
     this.camera = camera;
@@ -136,14 +143,11 @@ export class CameraController {
 
     if (!this.rotating) return;
     const dx = e.clientX - this.lastPointer.x;
-    const dy = e.clientY - this.lastPointer.y;
     this.lastPointer = { x: e.clientX, y: e.clientY };
+    // Yaw only. The tilt is fixed, so the dungeon is always read from the same
+    // height and a room looks the same wherever you are on the map — which is
+    // what a management game wants, and what a freely tumbling camera loses.
     this.desiredYaw -= dx * 0.006;
-    this.desiredPitch = THREE.MathUtils.clamp(
-      this.desiredPitch - dy * 0.005,
-      CameraController.MIN_PITCH,
-      CameraController.MAX_PITCH,
-    );
   };
 
   private onPointerUp = (e: PointerEvent): void => {
@@ -233,7 +237,6 @@ export class CameraController {
     const k = 1 - Math.exp(-dt * 11);
     this.target.lerp(this.desiredTarget, k);
     this.yaw += (this.desiredYaw - this.yaw) * k;
-    this.pitch += (this.desiredPitch - this.pitch) * k;
     this.distance += (this.desiredDistance - this.distance) * k;
 
     this.applyToCamera();

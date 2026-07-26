@@ -114,17 +114,13 @@ export class CreatureRenderer {
       metalness: 0.52,
       envMapIntensity: 1.8,
     });
+    // Opaque and unlit. Additive blending was erasing everything inside the
+    // eye — a pupil that adds light is not a pupil — so eyes were a pair of
+    // bright dots however carefully they were modelled. Unlit keeps them
+    // readable in a dark dungeon without washing out the shapes.
     this.eyeMaterial = new THREE.MeshBasicMaterial({
-      // Yellow-orange and lit from inside, per the art direction.
-      color: 0xffb020,
-      // Explicit, even though the eye geometry's own colours are plain white:
-      // three only feeds instanceColor through to the fragment stage when
-      // USE_COLOR is defined, and that comes from this flag.
       vertexColors: true,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
+      toneMapped: false,
     });
     this.ringMaterial = new THREE.MeshBasicMaterial({
       map: makeGlowTexture(64, 'rgba(255,255,255,0.85)'),
@@ -185,7 +181,6 @@ export class CreatureRenderer {
 
     const eyes = new THREE.InstancedMesh(model.eyes, this.eyeMaterial, MAX_PER_TYPE);
     eyes.frustumCulled = false;
-    eyes.renderOrder = 3;
     eyes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     eyes.instanceColor =
       new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_TYPE * 3).fill(1), 3);
@@ -454,8 +449,11 @@ export class CreatureRenderer {
 
     // A veteran's eyes are lit from inside — the cheapest read on rank there is,
     // and the one that still works when the creature is a silhouette.
-    const glow = eyeGlowFor(c.level) * (c.state === CreatureState.Sleeping ? 0.35 : 1);
-    this.color.setRGB(glow, glow * 0.94, glow * 0.86);
+    // Rank brightens the eyes rather than replacing them: a champion's stare
+    // is hotter, but it is still a stare with a pupil in it.
+    const glow = Math.min(1.6, eyeGlowFor(c.level))
+      * (c.state === CreatureState.Sleeping ? 0.3 : 1);
+    this.color.setRGB(glow, glow * 0.97, glow * 0.92);
     batch.eyes.setColorAt(n, this.color);
 
     // Owner ring on the floor: how you tell yours from theirs at a glance.

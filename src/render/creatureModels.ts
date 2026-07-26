@@ -127,11 +127,51 @@ export class PartBuilder {
   }
 }
 
-/** A pair of glowing eyes at a given head position. */
-function eyePair(y: number, z: number, spread: number, r: number): THREE.BufferGeometry {
+/**
+ * A pair of eyes, built the way a comic draws them.
+ *
+ * These were two white spheres with an additive glow, which from any distance
+ * was a pair of bright dots — no gaze, no expression, no character. Eyes are
+ * where a stylised creature's personality lives, so they are now built
+ * properly and built *large*: a big coloured iris, a hard black pupil, and an
+ * offset white catchlight. The catchlight is what does most of the work; it is
+ * the difference between an eye and a marble.
+ *
+ * Deliberately oversized against the skull — well past anatomical, which is
+ * exactly the convention being borrowed. The pair is also slightly asymmetric,
+ * because two identical eyes read as a machine.
+ */
+function eyePair(
+  y: number, z: number, spread: number, r: number,
+  iris = 0xffb020, angry = 0.0,
+): THREE.BufferGeometry {
   const b = new PartBuilder();
-  b.sphere(r, -spread, y, z, 0xffffff);
-  b.sphere(r, spread, y, z, 0xffffff);
+  // Comic proportions: a good deal bigger than the anatomy would suggest.
+  const R = r * 2.15;
+
+  for (const side of [-1, 1]) {
+    // One eye a fraction larger and higher — asymmetry is personality.
+    const wobble = side < 0 ? 1.06 : 0.95;
+    const e = R * wobble;
+    const ex = side * spread * 1.08;
+    const ey = y + (side < 0 ? e * 0.05 : -e * 0.04);
+
+    // Sclera, flattened back into the head so it sits in a socket.
+    b.sphere(e, ex, ey, z, 0xf4f0e6, 1, 1, 0.62, 9);
+    // Iris, then a hard pupil in front of it.
+    b.sphere(e * 0.62, ex, ey, z + e * 0.5, iris, 1, 1, 0.5, 8);
+    b.sphere(e * 0.34, ex, ey, z + e * 0.72, 0x140c08, 1, 1, 0.5, 7);
+    // The catchlight: high and off to one side, and the same side on both eyes
+    // so they agree about where the light is.
+    b.sphere(e * 0.2, ex - e * 0.3, ey + e * 0.34, z + e * 0.78, 0xffffff, 1, 1, 0.5, 6);
+
+    // A heavy brow ridge sloping inward. This is the whole expression: level
+    // brows read as blank, angled ones read as furious.
+    if (angry > 0) {
+      b.box(e * 1.5, e * 0.42, e * 0.5,
+        ex, ey + e * 1.05, z + e * 0.25, 0x1a1008, 0, 0, side * angry);
+    }
+  }
   return b.build();
 }
 
@@ -278,13 +318,9 @@ function buildImp(color: number, accent: number): CreatureModel {
       l.cone(0.020, 0.07, 0.06, -0.40, 0.02, 0xf4ecd6, -Math.PI / 2, 0, -0.6, 4);
       return l.build();
     })(),
-    // Mismatched on purpose: one eye a touch bigger and higher than the other.
-    eyes: (() => {
-      const e = new PartBuilder();
-      e.sphere(0.095, -0.115, 0.755, 0.20, 0xffffff, 1, 1, 0.9, 8);
-      e.sphere(0.082, 0.118, 0.742, 0.20, 0xffffff, 1, 1, 0.9, 8);
-      return e.build();
-    })(),
+    // Huge and yellow, with a hard scowl. An imp is the comic relief and its
+    // face has to carry that from across the room.
+    eyes: eyePair(0.755, 0.20, 0.115, 0.062, 0xffc21e, 0.6),
     limbOffset: new THREE.Vector3(0.16, 0.20, 0),
     flapping: false,
     height: 1.0,
@@ -324,7 +360,7 @@ function buildFly(color: number, accent: number): CreatureModel {
       l.box(0.05, 0.006, 0.22, 0.06, -0.006, -0.30, 0xdce8c8);
       return l.build();
     })(),
-    eyes: eyePair(0.36, 0.36, 0.085, 0.062),
+    eyes: eyePair(0.36, 0.36, 0.085, 0.062, 0x8ad4ff, 0.55),
     limbOffset: new THREE.Vector3(0.09, 0.42, 0.08),
     flapping: true,
     height: 0.62,
@@ -363,7 +399,7 @@ function buildBeetle(color: number, accent: number): CreatureModel {
       l.cone(0.022, 0.07, 0.11, -0.38, 0.02, 0x2a1e12, Math.PI / 2, 0, 0, 4);
       return l.build();
     })(),
-    eyes: eyePair(0.28, 0.52, 0.10, 0.045),
+    eyes: eyePair(0.28, 0.52, 0.10, 0.045, 0xc4f04a, 0.2),
     limbOffset: new THREE.Vector3(0.28, 0.16, 0.10),
     flapping: false,
     height: 0.74,
@@ -415,7 +451,7 @@ function buildTroll(color: number, accent: number): CreatureModel {
       }
       return l.build();
     })(),
-    eyes: eyePair(1.05, 0.24, 0.075, 0.05),
+    eyes: eyePair(1.05, 0.24, 0.075, 0.05, 0xffd24a, 0.7),
     limbOffset: new THREE.Vector3(0.19, 0.42, 0),
     flapping: false,
     height: 1.5,
@@ -464,7 +500,7 @@ function buildDemonSpawn(color: number, accent: number): CreatureModel {
       }
       return l.build();
     })(),
-    eyes: eyePair(1.03, 0.24, 0.075, 0.05),
+    eyes: eyePair(1.03, 0.24, 0.075, 0.05, 0xff5c3a, 0.85),
     limbOffset: new THREE.Vector3(0.15, 0.44, 0),
     flapping: false,
     height: 1.35,
@@ -561,7 +597,7 @@ function buildBileDemon(color: number, accent: number): CreatureModel {
       l.cone(0.028, 0.08, 0, -0.27, -0.14, bone, Math.PI / 2, 0, 0, 4);
       return l.build();
     })(),
-    eyes: eyePair(1.14, 0.32, 0.10, 0.05),
+    eyes: eyePair(1.14, 0.32, 0.10, 0.05, 0xa8ff70, 0.4),
     limbOffset: new THREE.Vector3(0.27, 0.28, 0),
     flapping: false,
     height: 1.6,
@@ -611,7 +647,7 @@ function buildWarlock(color: number, accent: number): CreatureModel {
       .box(0.13, 0.09, 0.19, 0, -0.04, 0.03, trim)
       .box(0.09, 0.05, 0.06, 0, -0.07, 0.13, 0x2a1e14)
       .build(),
-    eyes: eyePair(0.95, 0.20, 0.055, 0.042),
+    eyes: eyePair(0.95, 0.20, 0.055, 0.042, 0xc07aff, 0.5),
     limbOffset: new THREE.Vector3(0.10, 0.07, 0),
     flapping: false,
     height: 1.35,
@@ -663,7 +699,7 @@ function buildDragon(color: number, accent: number): CreatureModel {
       l.cone(0.02, 0.09, 0, 0.10, -0.80, 0xf0e8d0, -Math.PI / 2, 0, 0, 4);
       return l.build();
     })(),
-    eyes: eyePair(1.20, 0.68, 0.085, 0.05),
+    eyes: eyePair(1.20, 0.68, 0.085, 0.05, 0xffa030, 0.9),
     limbOffset: new THREE.Vector3(0.30, 0.86, -0.06),
     flapping: true,
     height: 1.6,
@@ -711,7 +747,7 @@ function buildDwarf(color: number, accent: number): CreatureModel {
       l.sphere(0.08, 0, -0.32, 0.05, 0x4a3520, 1.1, 0.7, 1.4, 6);
       return l.build();
     })(),
-    eyes: eyePair(0.76, 0.16, 0.065, 0.035),
+    eyes: eyePair(0.76, 0.16, 0.065, 0.035, 0x6ad0ff, 0.35),
     limbOffset: new THREE.Vector3(0.13, 0.22, 0),
     flapping: false,
     height: 1.05,
@@ -752,7 +788,7 @@ function buildArcher(color: number, accent: number): CreatureModel {
       l.sphere(0.06, 0, -0.46, 0.05, 0x3a2a18, 1.1, 0.7, 1.4, 6);
       return l.build();
     })(),
-    eyes: eyePair(0.96, 0.14, 0.055, 0.035),
+    eyes: eyePair(0.96, 0.14, 0.055, 0.035, 0x4ac8d8, 0.45),
     limbOffset: new THREE.Vector3(0.11, 0.36, 0),
     flapping: false,
     height: 1.35,
@@ -809,7 +845,7 @@ function buildKnight(color: number, accent: number): CreatureModel {
       l.sphere(0.085, 0, -0.48, 0.06, dark, 1.1, 0.7, 1.5, 6);
       return l.build();
     })(),
-    eyes: eyePair(1.10, 0.16, 0.05, 0.028),
+    eyes: eyePair(1.10, 0.16, 0.05, 0.028, 0x9ad8ff, 0.75),
     limbOffset: new THREE.Vector3(0.15, 0.38, 0),
     flapping: false,
     height: 1.65,
