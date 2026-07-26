@@ -1,19 +1,20 @@
 import {
   HEART_HP,
+  isDiggable,
+  isWalkable,
   MANA_BASE_REGEN,
   MANA_MAX,
   MANA_PER_CLAIMED_TILE,
   Owner,
   PAYDAY_INTERVAL,
+  PAYROLL_HEADROOM,
   PORTAL_INTERVAL,
   ROOM_SPECS,
   RoomType,
   SPELL_SPECS,
   SpellType,
-  TICKS_PER_SECOND,
   Terrain,
-  isDiggable,
-  isWalkable,
+  TICKS_PER_SECOND,
 } from './constants';
 import {
   AIWorld,
@@ -223,6 +224,10 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
         'Your treasury is full. Build more treasure rooms!', 'treasury-full', 'treasury-full');
     }
     return stored;
+  }
+
+  hasTreasurySpace(owner: Owner): boolean {
+    return this.keeper(owner).gold < treasuryCapacity(this.map, this.rooms, owner);
   }
 
   withdrawGold(owner: Owner, amount: number): number {
@@ -734,11 +739,30 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     if (portal === undefined) return;
 
     const lairs = this.rooms.count(map, owner, RoomType.Lair);
-    const nonWorkers = this.creatures.filter(
+    const mine = this.creatures.filter(
       (c) => c.owner === owner && !CREATURE_SPECS[c.type].worker,
-    ).length;
-    if (nonWorkers >= lairs) return;
+    );
+    if (mine.length >= lairs) return;
     if (this.rooms.count(map, owner, RoomType.Hatchery) === 0) return;
+
+    /*
+     * And nobody signs on with a keeper who cannot make payroll.
+     *
+     * Lair space was the only brake on recruitment, which was survivable only
+     * because two thirds of all mined gold was being destroyed before it reached
+     * the vault. With that fixed the early economy roughly doubled, the portal
+     * filled every lair inside three minutes, and the wage bill arrived and
+     * bankrupted the dungeon: payday failed, the whole roster turned furious and
+     * deserted, and the workforce collapsed to a single imp. Measured, not
+     * theorised — the smoke run went from eight creatures to one.
+     *
+     * Wages are the real limit on an army in this game, so make them the gate.
+     * A keeper needs the next payday banked with room to spare before another
+     * mouth walks through the portal, which is also the advice the game would
+     * give a player: earn first, recruit second.
+     */
+    const owed = mine.reduce((sum, c) => sum + wageOf(c), 0);
+    if (this.keeper(owner).gold < owed * PAYROLL_HEADROOM) return;
 
     // Which creatures show up depends on which rooms you've built.
     const pool: CreatureType[] = [];

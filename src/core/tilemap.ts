@@ -121,7 +121,12 @@ export class TileMap {
     this.owner[i] = owner;
     this.health[i] = isSolid(t) ? (DIG_HEALTH[t] ?? 0) : 0;
     if (!isSolid(t)) this.flags[i] &= ~FLAG_MARKED;
-    if (t !== Terrain.Gold && t !== Terrain.Gems) this.gold[i] = 0;
+    // Only rock buries gold. This used to clear the counter for any terrain that
+    // was not a seam, which was correct while `gold` meant "gold in this wall" and
+    // silently destructive once a floor tile could hold a heap: claiming the ground
+    // under a pile runs through here, so an imp's own spoil vanished the moment
+    // another imp claimed the tile it was standing on.
+    if (isSolid(t) && t !== Terrain.Gold && t !== Terrain.Gems) this.gold[i] = 0;
     // A device cannot survive the floor under it being dug out or reclaimed.
     this.trap[i] = 0;
     this.trapCharges[i] = 0;
@@ -186,6 +191,8 @@ export class TileMap {
     }
 
     const released = this.gold[i];
+    // Handed to the caller, so it must not also stay in the tile.
+    if (t !== Terrain.Gems) this.gold[i] = 0;
     if (t === Terrain.Gems) {
       // Reset and keep the seam standing — infinite, but slow.
       this.health[i] = DIG_HEALTH[Terrain.Gems];
@@ -195,6 +202,57 @@ export class TileMap {
 
     this.setTerrain(x, y, Terrain.Path, Owner.None);
     return t === Terrain.Gold ? released : 0;
+  }
+
+  /* ---------------------------------------------------------- loose gold -- */
+
+  /*
+   * Gold lying on the floor.
+   *
+   * The same `gold` array a seam uses, because it is the same thing seen at a
+   * different moment: gold that is in this tile and not yet in anybody's vault.
+   * A solid tile's is a seam, a floor tile's is a heap somebody has to come and
+   * fetch.
+   *
+   * This exists because a seam holds 750 and an imp can carry 250, and the other
+   * 500 was being deleted the instant the wall came down — two thirds of every
+   * seam in the game, silently. Loose piles are how the original handles it, they
+   * make the shortfall visible instead of invisible, and they give a full treasury
+   * somewhere to overflow to rather than a hole to pour into.
+   */
+
+  /** Gold heaped on a floor tile, waiting to be carried. */
+  looseGoldAt(x: number, y: number): number {
+    if (!this.inBounds(x, y)) return 0;
+    const i = this.idx(x, y);
+    return isSolid(this.terrain[i] as Terrain) ? 0 : this.gold[i];
+  }
+
+  /** Put gold down on a floor tile. Returns what would not fit in the counter. */
+  dropGold(x: number, y: number, amount: number): number {
+    if (amount <= 0 || !this.inBounds(x, y)) return amount;
+    const i = this.idx(x, y);
+    if (isSolid(this.terrain[i] as Terrain)) return amount;
+    // The array is 16-bit; a heap that large means something else is wrong, but
+    // silently wrapping to zero would be worse than refusing the surplus.
+    const room = 65535 - this.gold[i];
+    const put = Math.min(amount, room);
+    this.gold[i] += put;
+    this.version++;
+    return amount - put;
+  }
+
+  /** Take up to `max` gold off a floor tile. Returns what was picked up. */
+  takeGold(x: number, y: number, max: number): number {
+    if (max <= 0 || !this.inBounds(x, y)) return 0;
+    const i = this.idx(x, y);
+    if (isSolid(this.terrain[i] as Terrain)) return 0;
+    const took = Math.min(max, this.gold[i]);
+    if (took > 0) {
+      this.gold[i] -= took;
+      this.version++;
+    }
+    return took;
   }
 
   /* ------------------------------------------------------------ claiming -- */

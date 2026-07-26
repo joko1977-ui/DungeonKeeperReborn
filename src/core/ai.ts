@@ -43,6 +43,8 @@ export interface AIWorld {
   goldOf(owner: Owner): number;
   /** Store gold, capped by treasury size. Returns how much actually fit. */
   depositGold(owner: Owner, amount: number): number;
+  /** Is there vault room for any more? Imps do not fetch what cannot be stored. */
+  hasTreasurySpace(owner: Owner): boolean;
   /** Spend gold. Returns how much was actually available. */
   withdrawGold(owner: Owner, amount: number): number;
 
@@ -82,6 +84,15 @@ export interface AIWorld {
   effect(kind: string, x: number, y: number): void;
   onCreatureDied(creature: Creature): void;
 }
+
+/**
+ * How far an imp will walk for gold lying on the floor, in tiles.
+ *
+ * Small on purpose — see the job ladder in `thinkImp`. Piles further off than
+ * this are not abandoned, they are just not urgent: an imp with nothing tagged to
+ * dig falls through to idling, and idle imps sweep them up.
+ */
+const LOOSE_GOLD_REACH = 9;
 
 /** Squared distance in tile units. */
 function dist2(ax: number, ay: number, bx: number, by: number): number {
@@ -313,17 +324,52 @@ function thinkImp(world: AIWorld, c: Creature): void {
 
   // 1. Carrying gold? Get it into a treasury before doing anything else.
   if (c.goldHeld > 0) {
+    // Already standing in the vault — hand it over where you are. Pathing to the
+    // tile you are on is the kind of request a pathfinder is entitled to refuse,
+    // and refusing it here would send the load back onto the floor in a loop.
+    if (map.roomAt(ix, iy) === RoomType.Treasury && map.ownerAt(ix, iy) === c.owner) {
+      c.targetTile = map.idx(ix, iy);
+      c.state = CreatureState.Hauling;
+      return;
+    }
     const target = nearestRoomTile(map, world.rooms, c.owner, RoomType.Treasury, ix, iy);
     if (target >= 0 && setPathTo(world, c, target)) {
       c.state = CreatureState.Hauling;
       c.targetTile = target;
       return;
     }
-    // Nowhere to put it — drop it and carry on working.
+    // Nowhere to put it, or no way to get there. Set it down where it stands
+    // rather than deleting it: an unreachable treasury is a problem the player
+    // can fix, and the gold should still be there when they do.
+    map.dropGold(ix, iy, c.goldHeld);
     c.goldHeld = 0;
   }
 
-  // 2. Dig anything the keeper has tagged.
+  // 2. Gold on the floor nearby, and somewhere to put it.
+  //
+  // Ahead of digging, so an imp that has just brought a seam down ferries its own
+  // spoil away instead of walking off to the next wall and leaving it — which is
+  // exactly what the player is watching for when they tag a gold seam.
+  //
+  // But only what is *close*. Unbounded, this outranked tagged digging across the
+  // whole map: one heap in a far corner would pull the entire workforce off the
+  // slab the player had just marked, and the dig visibly stalled. Near enough to
+  // be "the gold I am standing next to", not "any gold in the realm".
+  if (world.hasTreasurySpace(c.owner)) {
+    const pile = world.finder.findNearest(
+      ix, iy,
+      (x, y) => pass(x, y),
+      (x, y) => map.looseGoldAt(x, y) > 0
+        && Math.abs(x - ix) + Math.abs(y - iy) <= LOOSE_GOLD_REACH,
+    );
+    if (pile >= 0 && setPathTo(world, c, pile)) {
+      c.targetTile = pile;
+      c.state = CreatureState.Walking;
+      return;
+    }
+  }
+
+  // 3. Dig anything the keeper has tagged.
   const digTarget = world.finder.findNearest(
     ix, iy,
     (x, y) => pass(x, y),
@@ -398,12 +444,27 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
       world.effect('poof', tx, ty);
       if (gold > 0) {
         c.goldHeld = Math.min(IMP_CARRY_CAPACITY, gold);
+        // Whatever will not fit in a pair of hands stays on the floor to be
+        // fetched, rather than being deleted where it fell.
+        if (gold > c.goldHeld) map.dropGold(tx, ty, gold - c.goldHeld);
         world.effect('gold', tx, ty);
       }
       c.targetTile = -1;
       c.state = CreatureState.Idle;
       c.thinkCooldown = 0;
     }
+    return true;
+  }
+
+  // Picking gold up off the floor. Ahead of claiming, because a heap can be
+  // sitting on unclaimed rock and the claim would win the tile and never look
+  // down at what was on it.
+  if (c.goldHeld < IMP_CARRY_CAPACITY && map.looseGoldAt(tx, ty) > 0) {
+    c.goldHeld += map.takeGold(tx, ty, IMP_CARRY_CAPACITY - c.goldHeld);
+    world.effect('gold', tx, ty);
+    c.targetTile = -1;
+    c.state = CreatureState.Idle;
+    c.thinkCooldown = 0;
     return true;
   }
 
@@ -437,13 +498,24 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
     const stored = world.depositGold(c.owner, c.goldHeld);
     c.goldHeld -= stored;
     world.effect('gold', tx, ty);
-    if (stored <= 0) {
+    if (c.goldHeld > 0) {
       // A full treasury used to park every imp on it permanently: nothing fit,
       // so the load never cleared, so this branch kept reporting "still working"
-      // and the whole workforce stopped digging for the rest of the level. The
-      // load is spilled instead. `depositGold` has already told the player their
-      // treasury is full, which is the actual problem to go and fix.
+      // and the whole workforce stopped digging for the rest of the level.
+      //
+      // So the load comes off the imp either way — but onto the floor, not into
+      // nothing. `depositGold` has already said the treasury is full; a growing
+      // heap of gold beside it says the same thing in the place the player is
+      // actually looking, and none of it is lost when they build more vault.
+      map.dropGold(tx, ty, c.goldHeld);
       c.goldHeld = 0;
+    }
+    // And sweep up whatever was spilled on this tile while the vault was full, so
+    // overflow finds its way in once there is room without needing an errand.
+    const spilled = map.looseGoldAt(tx, ty);
+    if (spilled > 0) {
+      const swept = world.depositGold(c.owner, spilled);
+      if (swept > 0) map.takeGold(tx, ty, swept);
     }
     if (c.goldHeld <= 0) {
       c.goldHeld = 0;
@@ -853,7 +925,13 @@ export function updateCreature(world: AIWorld, c: Creature, dt: number): void {
   if (c.path) {
     const arrived = advancePath(world, c, dt);
     if (!arrived) {
-      if (c.state !== CreatureState.LeavingDungeon) c.state = CreatureState.Walking;
+      // Hauling is a kind of walking, and it survives the overwrite. It was not
+      // surviving: the state lasted exactly one tick before this line replaced it,
+      // so an imp on its way to the vault reported itself as merely Walking to the
+      // tooltip and the message log for the whole journey.
+      if (c.state !== CreatureState.LeavingDungeon && c.state !== CreatureState.Hauling) {
+        c.state = CreatureState.Walking;
+      }
       return;
     }
   }

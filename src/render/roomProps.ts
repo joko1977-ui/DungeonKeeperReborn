@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OWNER_COLORS, Owner, RoomType, Terrain } from '../core/constants';
+import { OWNER_COLORS, Owner, RoomType, Terrain, isSolid } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
 
@@ -209,6 +209,7 @@ export class RoomPropRenderer {
   private readonly map: TileMap;
   private readonly material: THREE.MeshStandardMaterial;
   private readonly goldMaterial: THREE.MeshStandardMaterial;
+  private readonly loosePiles: THREE.InstancedMesh;
   private readonly heartMaterial: THREE.MeshStandardMaterial;
   private readonly portalMaterial: THREE.MeshStandardMaterial;
   /** Both centrepieces light their own chamber. */
@@ -297,6 +298,23 @@ export class RoomPropRenderer {
       this.group.add(mesh);
     }
 
+    /*
+     * Gold lying on the floor.
+     *
+     * A seam holds three imp-loads, so mining one leaves two of them on the
+     * ground, and a full treasury sends every delivery back out onto the flags.
+     * Both used to be invisible — the gold simply stopped existing — and the
+     * player's only evidence was a number that would not go up. A heap you can
+     * see is the difference between a bug and a situation.
+     */
+    this.loosePiles = new THREE.InstancedMesh(buildGoldPile(), this.goldMaterial, MAX_PROPS);
+    this.loosePiles.castShadow = true;
+    this.loosePiles.receiveShadow = true;
+    this.loosePiles.frustumCulled = false;
+    this.loosePiles.count = 0;
+    this.loosePiles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.loosePiles);
+
     this.heartBase = new THREE.InstancedMesh(buildDungeonHeart(), this.material, 8);
     this.heartCore = new THREE.InstancedMesh(buildHeartCore(), this.heartMaterial, 8);
     this.portalRing = new THREE.InstancedMesh(buildPortalRing(), this.material, 8);
@@ -382,6 +400,27 @@ export class RoomPropRenderer {
       batch.mesh.instanceMatrix.needsUpdate = true;
       batch.mesh.computeBoundingSphere();
     }
+
+    // Loose gold, wherever it is lying. Sized by how much is in the heap, so a
+    // seam that has just come down reads differently from a single dropped load.
+    let piles = 0;
+    for (let i = 0; i < map.gold.length && piles < MAX_PROPS; i++) {
+      if (map.gold[i] === 0) continue;
+      if ((map.flags[i] & FLAG_REVEALED) === 0) continue;
+      if (isSolid(map.terrain[i] as Terrain)) continue;
+      const heap = Math.min(1, map.gold[i] / 750);
+      const x = map.xOf(i), y = map.yOf(i);
+      dummy.position.set(
+        x + (tileRandom(i, 5) - 0.5) * 0.3, 0, y + (tileRandom(i, 6) - 0.5) * 0.3,
+      );
+      dummy.rotation.set(0, tileRandom(i, 7) * Math.PI * 2, 0);
+      dummy.scale.setScalar(0.34 + heap * 0.42);
+      dummy.updateMatrix();
+      this.loosePiles.setMatrixAt(piles++, dummy.matrix);
+    }
+    this.loosePiles.count = piles;
+    this.loosePiles.instanceMatrix.needsUpdate = true;
+    this.loosePiles.computeBoundingSphere();
 
     // Place one centrepiece at the middle of each heart and portal room.
     this.heartSpots = [];

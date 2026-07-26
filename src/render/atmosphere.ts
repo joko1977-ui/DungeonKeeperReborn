@@ -2,12 +2,20 @@ import * as THREE from 'three';
 import { makeGlowTexture } from './textures';
 
 /**
- * The air of the place: embers, ash, and shafts of light.
+ * The air of the place: embers, ash, and drifting motes.
  *
- * A dungeon lit by molten rock is never still. Fire throws sparks upward,
- * everything that burns leaves ash coming back down, and light through smoke
- * arrives as shafts rather than as an even wash. Without any of that the scene
- * reads as a diorama — correctly lit, and dead.
+ * A dungeon lit by molten rock is never still. Fire throws sparks upward and
+ * everything that burns leaves ash coming back down. Without any of that the
+ * scene reads as a diorama — correctly lit, and dead.
+ *
+ * There were god rays here too — seven slanted additive planes, meant to read as
+ * light through smoke. They were built for a camera at eye level and this camera
+ * looks almost straight down, where a slanted plane has no edge to hide behind:
+ * it presents its full face and reads as exactly what it is, a flat orange
+ * triangle. Worse, the whole system follows the focus point so the air stays
+ * dense wherever you look, which meant seven triangles pinned to the screen that
+ * no amount of panning would shift. A volumetric effect that needs a camera angle
+ * the game does not have is not an effect, it is a decal.
  *
  * All of it is drawn near the camera rather than across the map: a fixed volume
  * that follows the focus point and wraps particles around its edges. Filling a
@@ -19,7 +27,7 @@ import { makeGlowTexture } from './textures';
 const EMBER_COUNT = 320;
 /** Falling ash. Dim, slow, and there are more of them than you notice. */
 const ASH_COUNT = 260;
-/** Dust caught in the light shafts. */
+/** Dust turning slowly in the warm air. */
 const MOTE_COUNT = 220;
 
 /** Half-extent of the volume particles live in, in tiles. */
@@ -39,8 +47,6 @@ export class Atmosphere {
   private readonly embers: Drift;
   private readonly ash: Drift;
   private readonly motes: Drift;
-  private readonly shafts: THREE.Mesh;
-  private readonly shaftMaterial: THREE.MeshBasicMaterial;
   private readonly centre = new THREE.Vector3();
 
   constructor() {
@@ -65,53 +71,6 @@ export class Atmosphere {
       rise: [-0.06, 0.06],
       spread: 0.1,
     });
-
-    // God rays. Slanted slabs of light rather than a real volumetric solve:
-    // the honest version needs a depth-aware scattering pass, and at this scale
-    // and frame budget a handful of soft additive planes reads the same and
-    // costs nothing worth measuring.
-    const shaftGeo = new THREE.BufferGeometry();
-    const quads: number[] = [];
-    const alphas: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2 + 0.7;
-      const r = 5 + (i % 3) * 3.5;
-      const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
-      const w = 1.6 + (i % 2) * 0.9;
-      const lean = 2.4;
-      // Two triangles: wide and faint at the floor, narrow and bright above.
-      const top = [cx, CEILING, cz];
-      const l = [cx - w + lean, 0, cz - w * 0.5];
-      const rr = [cx + w + lean, 0, cz + w * 0.5];
-      quads.push(...top, ...l, ...rr);
-      alphas.push(1, 0, 0);
-    }
-    shaftGeo.setAttribute('position', new THREE.Float32BufferAttribute(quads, 3));
-    shaftGeo.setAttribute('alpha', new THREE.Float32BufferAttribute(alphas, 1));
-
-    this.shaftMaterial = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xff8c00),
-      transparent: true,
-      opacity: 0.055,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-    });
-    // Fade each shaft along its length using the per-vertex alpha above.
-    this.shaftMaterial.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float alpha;\nvarying float vAlpha;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAlpha = alpha;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vAlpha;')
-        .replace('#include <dithering_fragment>',
-          '#include <dithering_fragment>\ngl_FragColor.a *= vAlpha;');
-    };
-
-    this.shafts = new THREE.Mesh(shaftGeo, this.shaftMaterial);
-    this.shafts.frustumCulled = false;
-    this.shafts.renderOrder = 6;
-    this.group.add(this.shafts);
   }
 
   private makeDrift(count: number, opts: {
@@ -158,8 +117,6 @@ export class Atmosphere {
   update(dt: number, focus: THREE.Vector3, time: number): void {
     this.centre.set(Math.round(focus.x), 0, Math.round(focus.z));
     this.group.position.copy(this.centre);
-    this.shafts.rotation.y = time * 0.02;
-    this.shaftMaterial.opacity = 0.045 + 0.018 * Math.sin(time * 0.5);
 
     for (const drift of [this.embers, this.ash, this.motes]) {
       const { positions, velocities } = drift;
@@ -187,7 +144,6 @@ export class Atmosphere {
     this.embers.points.visible = f > 0.05;
     this.ash.points.visible = f > 0.4;
     this.motes.points.visible = f > 0.7;
-    this.shafts.visible = f > 0.4;
   }
 
   dispose(): void {
@@ -196,7 +152,5 @@ export class Atmosphere {
       drift.material.map?.dispose();
       drift.material.dispose();
     }
-    this.shafts.geometry.dispose();
-    this.shaftMaterial.dispose();
   }
 }

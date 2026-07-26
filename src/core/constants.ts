@@ -288,8 +288,32 @@ export const CLAIM_HEALTH = 60;
 export const GOLD_PER_SEAM = 750;
 /** Gold a single treasury tile can hold. */
 export const TREASURY_TILE_CAPACITY = 1000;
-/** How much gold an imp hauls in one trip. */
-export const IMP_CARRY_CAPACITY = 250;
+/**
+ * How much gold an imp hauls in one trip: exactly one seam.
+ *
+ * These two numbers have to be related, and they were not. At 250 against a
+ * 750-gold seam an imp pocketed a third of every wall it brought down and the
+ * rest was deleted on the spot — measured over a run, 4500 of 6750 gold mined
+ * simply stopped existing, which is what "the imps don't bring the gold they dug
+ * to the treasury" looks like from the player's side of the screen.
+ *
+ * Nothing is destroyed now whatever these are set to; a surplus goes on the floor
+ * as a heap for someone to fetch. But making one seam one load is what keeps the
+ * common case simple and quick: tag a seam, an imp mines it, an imp carries all of
+ * it home. Three trips per seam instead measurably starved everything else the
+ * workforce has to do — tagged digging visibly stalled, and the rooms behind it
+ * with them.
+ */
+export const IMP_CARRY_CAPACITY = GOLD_PER_SEAM;
+
+/**
+ * Paydays of wages a keeper must have banked before a new creature will join.
+ *
+ * The brake on recruitment. Above 1 so a keeper needs the next payday covered
+ * *and* something spare, because a portal that fills every lair the moment the
+ * lairs exist is a bankruptcy with extra steps.
+ */
+export const PAYROLL_HEADROOM = 1.6;
 
 /** Ticks between paydays. Creatures unpaid go unhappy and eventually leave. */
 export const PAYDAY_INTERVAL = TICKS_PER_SECOND * 100;

@@ -563,6 +563,58 @@ function fingerprint(seed: number): string {
 check('the same seed replays exactly', fingerprint(4242) === fingerprint(4242));
 check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
 
+/* -- gold conservation --------------------------------------------------- */
+
+/*
+ * Every coin out of a seam has to end up somewhere you can point at.
+ *
+ * This is the check that would have caught the bug it was written for. A seam
+ * held 750 and an imp could carry 250; the other 500 was deleted the instant the
+ * wall came down. Two thirds of the gold in every level, gone silently, and from
+ * the player's chair it looked exactly like imps refusing to take gold to the
+ * treasury. Nothing here noticed, because every existing check asked whether gold
+ * *arrived* and none asked whether all of it did.
+ *
+ * Deliberately one seam and a short window rather than a whole game: gold leaves
+ * a running economy for perfectly good reasons — wages, room purchases, a rival's
+ * imps filling a rival's vault — and none of that is a leak. One seam, no payday
+ * inside the window, and the sum has to be exact.
+ */
+{
+  const g = generateLevel({ seed: 31337 });
+  const m = g.map;
+  const home = g.startView();
+
+  // A tagged seam next to ground the player already owns, so an imp can reach it.
+  let seam = -1;
+  for (let r = 2; r < 12 && seam < 0; r++) {
+    for (let y = home.y - r; y <= home.y + r && seam < 0; y++) {
+      for (let x = home.x - r; x <= home.x + r && seam < 0; x++) {
+        if (!m.inBounds(x, y) || m.terrainAt(x, y) !== Terrain.Gold) continue;
+        if (m.hasExposedFace(x, y) && g.markTile(x, y, true)) seam = m.idx(x, y);
+      }
+    }
+  }
+  check('found a gold seam to mine', seam >= 0);
+
+  const inSeam = m.gold[seam];
+  const before = g.goldOf(Owner.Player);
+  let ticks = 0;
+  // Short of the first payday at 2000 ticks, so nothing legitimately leaves.
+  while (ticks < 1500 && m.terrain[seam] === Terrain.Gold) { g.tick(); ticks++; }
+
+  const held = g.creatures
+    .filter((c) => c.owner === Owner.Player)
+    .reduce((a, c) => a + c.goldHeld, 0);
+  let onFloor = 0;
+  for (let i = 0; i < m.gold.length; i++) onFloor += m.looseGoldAt(m.xOf(i), m.yOf(i));
+  const accounted = (g.goldOf(Owner.Player) - before) + held + onFloor;
+
+  check('the seam was mined out', m.terrain[seam] !== Terrain.Gold, { ticks });
+  check('no mined gold is destroyed', accounted === inSeam,
+    { inSeam, accounted, inVault: g.goldOf(Owner.Player) - before, held, onFloor });
+}
+
 /* -- creature models ----------------------------------------------------- */
 
 /*
