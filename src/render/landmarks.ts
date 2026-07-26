@@ -99,11 +99,11 @@ export class LandmarkRenderer {
 
     // A tall, soft cone of light. Rendered from inside as well as outside so
     // the camera can pass through one without it vanishing.
-    this.beaconGeometry = new THREE.CylinderGeometry(0.30, 0.62, 7, 12, 1, true);
-    this.beaconGeometry.translate(0, 3.5, 0);
+    this.beaconGeometry = new THREE.CylinderGeometry(0.16, 0.40, 5.5, 12, 1, true);
+    this.beaconGeometry.translate(0, 2.75, 0);
     this.beaconMaterial = new THREE.MeshBasicMaterial({
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.06,
       depthWrite: false,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
@@ -119,7 +119,7 @@ export class LandmarkRenderer {
     const pos = this.beaconGeometry.attributes.position;
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
-      const t = Math.max(0, Math.min(1, pos.getY(i) / 7));
+      const t = Math.max(0, Math.min(1, pos.getY(i) / 5.5));
       const a = Math.pow(1 - t, 1.8);
       colors[i * 3] = a;
       colors[i * 3 + 1] = a;
@@ -286,7 +286,9 @@ export class LandmarkRenderer {
       const beacon = this.beaconPool[i];
       if (!beacon.visible) continue;
       const mat = beacon.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.12 + 0.07 * Math.sin(time * 1.1 + i * 1.7);
+      // Faint. A beacon is a hint about where something is, and it was
+      // stacking a bright column on top of an already-glowing room.
+      mat.opacity = 0.045 + 0.022 * Math.sin(time * 1.1 + i * 1.7);
       beacon.rotation.y = time * 0.15 + i;
     }
   }

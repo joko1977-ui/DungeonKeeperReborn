@@ -12,6 +12,38 @@ import {
   Rank, WORN_RANKS, auraStrength, buildRankRegalia, eyeGlowFor, rankOf, rankScale, rigFor,
 } from './creatureRank';
 import { makeGlowTexture } from './textures';
+
+/**
+ * The cel ramp: how light falls across a creature.
+ *
+ * Three hard steps, no blend between them. This is the whole trick behind the
+ * anime look and it is not a filter — it changes how the lighting integral is
+ * resolved, so a rounded limb stops being a smooth gradient and becomes a lit
+ * shape with a shadow shape beside it and a hard line where they meet. Every
+ * other stylisation in this game was cosmetic on top of realistic shading;
+ * this is the shading.
+ *
+ * Nearest filtering is mandatory — a linearly filtered ramp is just a gradient
+ * again, which is exactly what it is here to stop being.
+ */
+function makeCelRamp(): THREE.DataTexture {
+  // Deep shadow, mid, lit — and the range is deliberately compressed at both
+  // ends. A ramp that runs all the way to white blows the lit side out to flat
+  // paper under this warm key, and one that runs to black turns the shadow side
+  // into a hole; both throw away the creature's own colour, which is the thing
+  // the flat shading is supposed to show off.
+  const steps = new Uint8Array([
+    112, 108, 118, 255,
+    180, 176, 178, 255,
+    238, 234, 228, 255,
+  ]);
+  const tex = new THREE.DataTexture(steps, 3, 1, THREE.RGBAFormat);
+  tex.minFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
 import { PartBuilder } from './creatureModels';
 
 /** A bulging sack with coins spilling over the tie. */
@@ -69,13 +101,14 @@ export class CreatureRenderer {
   readonly group = new THREE.Group();
 
   private readonly batches = new Map<CreatureType, TypeBatch>();
-  private readonly bodyMaterial: THREE.MeshStandardMaterial;
-  private readonly regaliaMaterial: THREE.MeshStandardMaterial;
+  private readonly bodyMaterial: THREE.MeshToonMaterial;
+  private readonly regaliaMaterial: THREE.MeshToonMaterial;
+  private readonly celRamp: THREE.DataTexture;
   private readonly eyeMaterial: THREE.MeshBasicMaterial;
   private readonly ringMaterial: THREE.MeshBasicMaterial;
   private readonly shadowMaterial: THREE.MeshBasicMaterial;
   private readonly auraMaterial: THREE.MeshBasicMaterial;
-  private readonly sackMaterial: THREE.MeshStandardMaterial;
+  private readonly sackMaterial: THREE.MeshToonMaterial;
 
   private readonly dummy = new THREE.Object3D();
   private readonly limbDummy = new THREE.Object3D();
@@ -88,31 +121,25 @@ export class CreatureRenderer {
   private readonly pickTable = new Map<THREE.InstancedMesh, Creature[]>();
 
   constructor() {
-    this.bodyMaterial = new THREE.MeshStandardMaterial({
+    this.celRamp = makeCelRamp();
+    // Toon, not standard. A physically-based material spreads light smoothly
+    // across a curved surface, and smooth is the opposite of what this style
+    // wants: manga shades a limb as one flat colour with one flat shadow and a
+    // hard edge between them. Nothing else here was ever going to get that,
+    // however the roughness was tuned.
+    this.bodyMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      // Hide and scale, not stone: a little sheen so a creature turning in
-      // torchlight has a rolling highlight along its back.
-      roughness: 0.62,
-      metalness: 0.14,
-      // Creatures are what the eye goes to, and a dungeon lit only by distant
-      // torches left them as silhouettes. The baked environment carries a warm
-      // floor bounce; leaning on it here lifts the creatures without flattening
-      // the walls, which keep their own much lower intensity.
-      envMapIntensity: 1.15,
+      gradientMap: this.celRamp,
     });
     // Armour is metal and must behave like metal: high metalness, low
     // roughness, and it picks up the environment. Sharing the body material
     // would have made a steel pauldron look like painted hide.
-    // Metalness deliberately short of 1. A fully metallic surface has no
-    // diffuse term at all — it is *only* what it reflects — and what it has to
-    // reflect down here is a dark cave, so armour came out as a black blob with
-    // one blue highlight. Half-metal keeps the steel colour visible and still
-    // catches the torches.
-    this.regaliaMaterial = new THREE.MeshStandardMaterial({
+    // Armour shades the same way the skin does, or a champion looks like a
+    // photograph wearing a cartoon. Metal reads as metal through its colour
+    // and its highlight step, not through a reflection.
+    this.regaliaMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.3,
-      metalness: 0.52,
-      envMapIntensity: 1.8,
+      gradientMap: this.celRamp,
     });
     // Opaque and unlit. Additive blending was erasing everything inside the
     // eye — a pupil that adds light is not a pupil — so eyes were a pair of
@@ -141,12 +168,9 @@ export class CreatureRenderer {
       blending: THREE.NormalBlending,
       depthWrite: false,
     });
-    // Coin gold, so a hauled sack catches the light the way the heaps do.
-    this.sackMaterial = new THREE.MeshStandardMaterial({
+    this.sackMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.32,
-      metalness: 0.85,
-      envMapIntensity: 2.0,
+      gradientMap: this.celRamp,
     });
     this.auraMaterial = new THREE.MeshBasicMaterial({
       map: makeGlowTexture(96, 'rgba(255,214,140,0.9)'),
@@ -569,5 +593,6 @@ export class CreatureRenderer {
     this.shadowMaterial.dispose();
     this.auraMaterial.dispose();
     this.sackMaterial.dispose();
+    this.celRamp.dispose();
   }
 }

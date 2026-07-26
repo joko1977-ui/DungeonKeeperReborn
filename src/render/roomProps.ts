@@ -261,16 +261,19 @@ export class RoomPropRenderer {
       vertexColors: true,
       roughness: 0.45,
       metalness: 0.05,
-      emissive: new THREE.Color(0x8a1410),
-      emissiveIntensity: 0.9,
-      envMapIntensity: 0.6,
+      // Turned well down. The heart was the brightest thing on screen by a
+      // wide margin and it flattened everything near it into a red smear —
+      // a landmark should draw the eye, not own the frame.
+      emissive: new THREE.Color(0x6a0f0c),
+      emissiveIntensity: 0.35,
+      envMapIntensity: 0.4,
     });
     this.portalMaterial = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.3,
       metalness: 0.1,
-      emissive: new THREE.Color(0x6a2ea8),
-      emissiveIntensity: 1.1,
+      emissive: new THREE.Color(0x4a2078),
+      emissiveIntensity: 0.4,
     });
 
     const tiled: Array<[RoomType, THREE.BufferGeometry]> = [
@@ -312,8 +315,8 @@ export class RoomPropRenderer {
     // Two of each: yours and the nearest rival's. Every extra point light is
     // paid for in every lit fragment, and this budget is shared with torches.
     for (let i = 0; i < 2; i++) {
-      const heart = new THREE.PointLight(0xff4a2a, 0, 11, 1.6);
-      const portal = new THREE.PointLight(0xa060ff, 0, 9, 1.7);
+      const heart = new THREE.PointLight(0xff4a2a, 0, 8, 1.9);
+      const portal = new THREE.PointLight(0xa060ff, 0, 6.5, 2.0);
       this.heartLights.push(heart);
       this.portalLights.push(portal);
       this.group.add(heart, portal);
@@ -421,7 +424,7 @@ export class RoomPropRenderer {
     });
     this.portalLights.forEach((l, i) => {
       const spot = this.portalSpots[i];
-      if (spot) { l.position.set(spot.x, 0.8, spot.y); l.visible = true; l.intensity = 6; }
+      if (spot) { l.position.set(spot.x, 0.8, spot.y); l.visible = true; l.intensity = 2.2; }
       else { l.visible = false; l.intensity = 0; }
     });
 
@@ -480,9 +483,9 @@ export class RoomPropRenderer {
         this.heartCore.setMatrixAt(i, dummy.matrix);
       });
       this.heartCore.instanceMatrix.needsUpdate = true;
-      this.heartMaterial.emissiveIntensity = 0.75 + 0.5 * Math.exp(-beat * 6);
-      // The chamber brightens on each beat.
-      const lit = 9 + 7 * Math.exp(-beat * 6);
+      this.heartMaterial.emissiveIntensity = 0.3 + 0.22 * Math.exp(-beat * 6);
+      // The chamber brightens on each beat, but only a little.
+      const lit = 3 + 2.5 * Math.exp(-beat * 6);
       for (let i = 0; i < this.heartLights.length; i++) {
         if (this.heartSpots[i]) this.heartLights[i].intensity = lit;
       }
