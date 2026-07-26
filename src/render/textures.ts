@@ -122,45 +122,24 @@ const EARTH: MaterialRecipe = {
     fbm(x * 6, y * 6, 4, 6, rnd) * 0.7 + cellular(x * 7, y * 7, 7, rnd) * 0.35,
   ),
   color: (h, x, y, rnd) => {
-    // Basalt with organic tissue growing through it. The veins are a separate
-    // noise band rather than a tint, so the flesh reads as something living in
-    // the rock rather than as discoloured stone.
+    // Plain basalt.
+    //
+    // This carried fleshy organic veins for a while, per the art direction, and
+    // they did not survive the resolution: at one tile across a screen the vein
+    // noise reads as orange speckle rather than as tissue, and repeated over
+    // every wall on the map it was the single noisiest thing in the frame.
+    // A texture effect you cannot see at playing distance is not detail, it is
+    // dirt on the lens.
     const grit = fbm(x * 30, y * 30, 2, 30, rnd);
     const t = clamp01(h * lerp(0.85, 1.12, grit));
-    const stone: [number, number, number] = [
-      lerp(0.165, 0.239, t), lerp(0.122, 0.180, t), lerp(0.102, 0.157, t),
-    ];
-    const vein = fbm(x * 7 + 11.3, y * 7, 4, 7, rnd);
-    const flesh = clamp01((vein - 0.52) / 0.22);
-    if (flesh <= 0) return stone;
-    // #4A1F1F to #6B2A2A.
-    const f = clamp01(fbm(x * 19, y * 19, 2, 19, rnd));
-    const meat: [number, number, number] = [
-      lerp(0.290, 0.420, f), lerp(0.122, 0.165, f), lerp(0.122, 0.165, f),
-    ];
     return [
-      lerp(stone[0], meat[0], flesh),
-      lerp(stone[1], meat[1], flesh),
-      lerp(stone[2], meat[2], flesh),
+      lerp(0.165, 0.239, t),
+      lerp(0.122, 0.180, t),
+      lerp(0.102, 0.157, t),
     ];
   },
-  // Flesh is wetter than stone: 0.4-0.6 where the tissue is, 0.9 where it is not.
-  roughness: () => 0.88,
-  emissive: (_h, x, y) => {
-    // Subsurface red under the tissue. Very low — this is light bleeding
-    // through something thin, not a lamp.
-    const rnd = makeRandom(EARTH_SEED);
-    const vein = fbm(x * 7 + 11.3, y * 7, 4, 7, rnd);
-    const flesh = clamp01((vein - 0.52) / 0.22);
-    // Kept very low on purpose. At a fifth of this the veins were readable on
-    // one wall and, multiplied across every earth tile on the map, turned the
-    // whole dungeon into a red lantern.
-    return [flesh * 0.05, flesh * 0.008, flesh * 0.008];
-  },
+  roughness: () => 0.9,
 };
-
-/** Seed used by the earth recipe's emissive pass, so both passes agree. */
-const EARTH_SEED = 4;
 
 /** Gold seam: dark rock threaded with bright metal. */
 const GOLD: MaterialRecipe = {
@@ -263,7 +242,7 @@ const FLAGSTONE: MaterialRecipe = {
   roughness: (h) => lerp(0.90, 0.72, h),
   emissive: (_h, x, y) => {
     const glow = crackGlow(x, y, makeRandom(FLAGSTONE_SEED));
-    return [glow * 2.4, glow * 0.72, glow * 0.06];
+    return [glow * 1.5, glow * 0.45, glow * 0.04];
   },
 };
 
@@ -280,10 +259,12 @@ const FLAGSTONE_SEED = 8;
  */
 function crackGlow(x: number, y: number, rnd: (n: number) => number): number {
   const c = cellular(x * 3.5, y * 3.5, 4, rnd);
-  // Only the deepest part of each fracture lights up, and not every fracture:
-  // a floor lit along every seam reads as a circuit board.
-  const ridge = clamp01((0.13 - c) / 0.13);
-  const patchy = clamp01((fbm(x * 2.5 + 5.7, y * 2.5, 3, 3, rnd) - 0.42) / 0.3);
+  // Narrow, and rare. The first pass lit a third of every tile and the floor
+  // came out as a rash of orange dots that flooded the whole frame with one
+  // hue — which is exactly what was killing the colour in this scene. A crack
+  // is a thin line on an otherwise dark floor, and most tiles have none.
+  const ridge = clamp01((0.05 - c) / 0.05);
+  const patchy = clamp01((fbm(x * 2.5 + 5.7, y * 2.5, 3, 3, rnd) - 0.66) / 0.16);
   return ridge * patchy;
 }
 

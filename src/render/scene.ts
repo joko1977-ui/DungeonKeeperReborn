@@ -19,13 +19,14 @@ import { ISO_STANDOFF } from '../input/cameraController';
 const GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uSaturation: { value: 1.16 },
-    uContrast: { value: 1.18 },
-    // Lift is warm. It used to be blue, which put a cold cast into every shadow
-    // in the dungeon — the exact thing the art direction forbids.
-    uLift: { value: new THREE.Vector3(0.016, 0.007, 0.003) },
-    uGain: { value: new THREE.Vector3(1.06, 0.99, 0.94) },
-    uVignette: { value: 0.5 },
+    uSaturation: { value: 1.22 },
+    uContrast: { value: 1.26 },
+    // Teal shadows, warm highlights: the oldest trick there is, and the one the
+    // all-warm pass threw away. Lift is cool, gain is warm, so the two ends of
+    // the range pull apart instead of agreeing.
+    uLift: { value: new THREE.Vector3(0.004, 0.013, 0.020) },
+    uGain: { value: new THREE.Vector3(1.10, 1.0, 0.90) },
+    uVignette: { value: 0.44 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -46,7 +47,7 @@ const GRADE_SHADER = {
       vec4 texel = texture2D( tDiffuse, vUv );
       vec3 c = texel.rgb;
 
-      // Lift and gain: warm the shadows toward ember, cool nothing.
+      // Lift and gain: cool the shadows, warm the highlights.
       c = c * uGain + uLift * ( 1.0 - c );
 
       // Contrast about mid grey.
@@ -64,12 +65,80 @@ const GRADE_SHADER = {
     }`,
 };
 
+/**
+ * Ink lines, from a Sobel on scene depth.
+ *
+ * The single biggest thing separating low-poly that reads as *chosen* from
+ * low-poly that reads as unfinished. Our creatures are merged spheres and boxes
+ * and no amount of shading was going to hide that; an outline stops trying to
+ * hide it and makes the simplicity look deliberate.
+ *
+ * Depth rather than normals: it needs one buffer we already have, it catches
+ * silhouettes and object-against-object edges, and it deliberately does *not*
+ * draw a line down every crease in a wall, which would turn a dungeon of stone
+ * blocks into graph paper.
+ */
+const EDGE_SHADER = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    tDepth: { value: null as THREE.Texture | null },
+    uTexel: { value: new THREE.Vector2(1 / 1280, 1 / 800) },
+    uStrength: { value: 0.85 },
+    uThreshold: { value: 0.055 },
+    uNear: { value: 1 },
+    uFar: { value: 200 },
+  },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    }`,
+  fragmentShader: /* glsl */`
+    #include <packing>
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
+    uniform vec2 uTexel;
+    uniform float uStrength;
+    uniform float uThreshold;
+    uniform float uNear;
+    uniform float uFar;
+    varying vec2 vUv;
+
+    float viewDepth( vec2 uv ) {
+      float d = texture2D( tDepth, uv ).x;
+      // Orthographic: depth is already linear in NDC, so this is exact rather
+      // than the usual perspective approximation.
+      return orthographicDepthToViewZ( d, uNear, uFar );
+    }
+
+    void main() {
+      vec4 base = texture2D( tDiffuse, vUv );
+      float c = viewDepth( vUv );
+      float l = viewDepth( vUv - vec2( uTexel.x, 0.0 ) );
+      float r = viewDepth( vUv + vec2( uTexel.x, 0.0 ) );
+      float u = viewDepth( vUv + vec2( 0.0, uTexel.y ) );
+      float d = viewDepth( vUv - vec2( 0.0, uTexel.y ) );
+
+      float edge = max( max( abs( c - l ), abs( c - r ) ),
+                        max( abs( c - u ), abs( c - d ) ) );
+      // Scaled by depth so a distant silhouette gets the same weight of line as
+      // a near one; without this the far half of the dungeon has no outlines.
+      edge /= max( 1.0, abs( c ) * 0.08 );
+
+      float ink = smoothstep( uThreshold, uThreshold * 3.5, edge );
+      gl_FragColor = vec4( base.rgb * ( 1.0 - ink * uStrength ), base.a );
+    }`,
+};
+
 export interface QualitySettings {
   /** Bloom makes torches and lava read as light rather than paint. */
   bloom: boolean;
   shadows: boolean;
   /** Edge anti-aliasing. Cheap, and the single biggest tidiness win. */
   smaa: boolean;
+  /** Ink outlines. What makes the stylisation read as a style. */
+  outlines: boolean;
   /** Upper bound on device pixel ratio. */
   maxPixelRatio: number;
 }
@@ -93,7 +162,7 @@ function buildDungeonEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
   const count = geo.attributes.position.count;
   const colors = new Float32Array(count * 3);
   const pos = geo.attributes.position;
-  const up = new THREE.Color(0x14061c).convertSRGBToLinear();
+  const up = new THREE.Color(0x16323e).convertSRGBToLinear();
   const horizon = new THREE.Color(0xff6b00).convertSRGBToLinear();
   const down = new THREE.Color(0x7a2c08).convertSRGBToLinear();
   const c = new THREE.Color();
@@ -155,7 +224,7 @@ export function detectQuality(): QualitySettings {
   if (forced === 'high' || forced === 'low') {
     const high = forced === 'high';
     return {
-      bloom: high, shadows: high, smaa: high,
+      bloom: high, shadows: high, smaa: high, outlines: true,
       maxPixelRatio: high ? Math.min(dpr, 2) : 1,
     };
   }
@@ -176,6 +245,9 @@ export function detectQuality(): QualitySettings {
     // quality than anything else here, and the alternative is jagged edges on
     // every wall in the dungeon.
     smaa: true,
+    // Likewise. This is the art direction, not a garnish — without it the game
+    // is low-poly pretending not to be.
+    outlines: true,
     // Tablets and phones run at 2x or 3x; rendering every one of those pixels
     // is where the frame budget actually goes.
     maxPixelRatio: lowPower ? Math.min(dpr, 1.5) : Math.min(dpr, 2),
@@ -201,6 +273,7 @@ export class SceneRig {
   readonly environment: THREE.Texture;
   private readonly bloomPass: UnrealBloomPass | null;
   private readonly smaaPass: SMAAPass;
+  private readonly edgePass: ShaderPass;
   private readonly gradePass: ShaderPass;
   private quality: QualitySettings;
 
@@ -232,9 +305,12 @@ export class SceneRig {
     // Carries most of the light on creatures, which are the thing you actually
     // look at. Terrain materials pull their own intensity down so the walls do
     // not wash out with it.
-    this.scene.environmentIntensity = 0.85;
+    // Held down on purpose. A strong environment term is what makes a surface
+    // look photographed; the stylisation wants flat blocks of colour with the
+    // light doing the shaping.
+    this.scene.environmentIntensity = 0.42;
 
-    this.scene.background = new THREE.Color(0x080402);
+    this.scene.background = new THREE.Color(0x070d11);
     // Linear fog, banded around where the dungeon actually sits in view depth.
     //
     // Exponential fog is wrong under an orthographic camera: density is measured
@@ -242,7 +318,7 @@ export class SceneRig {
     // so every tile came out at 99% fog and the screen went black. Linear fog
     // anchored to the standoff fogs by *scene* depth, which is the thing worth
     // cueing. Tinted with the lava, so distance reads as smoke lit from below.
-    this.scene.fog = new THREE.Fog(0x1a0a04, ISO_STANDOFF - 14, ISO_STANDOFF + 30);
+    this.scene.fog = new THREE.Fog(0x0e1a20, ISO_STANDOFF - 16, ISO_STANDOFF + 40);
 
     // Orthographic, because the brief is a strictly isometric game and a
     // perspective camera is not one: parallel walls converge, a tile at the top
@@ -258,21 +334,22 @@ export class SceneRig {
     // The scene lives or dies on warm/cool separation. Fill is cool and dim so
     // unlit stone reads as blue shadow rather than brown mud; everything warm
     // comes from fire. Flat neutral fill was what made this look muddy.
-    // Every light in this dungeon is fire or magic. The fill used to be a cool
-    // blue, which is the one thing the art direction rules out outright: cool
-    // daylight makes a cave read as an overcast quarry. Ambient is near-black,
-    // and what little of it there is comes from the lava.
-    const ambient = new THREE.AmbientLight(0x3d1e10, 0.5);
+    // Warm key against cool shadow. The brief said warm light only, and taken
+    // literally that produced a monochrome orange scene with no colour depth at
+    // all: with nothing cool to push against, every surface sat at the same hue
+    // and the image went flat. The fire stays warm — it is still the only light
+    // anything is *lit by* — but the shadows it does not reach fall cool, which
+    // is what gives a fire-lit room its depth.
+    const ambient = new THREE.AmbientLight(0x24404c, 1.35);
     this.scene.add(ambient);
 
-    // Warm from below — bounce off molten rock — and a faint magical wash from
-    // above rather than a sky.
-    const hemi = new THREE.HemisphereLight(0x3a1a44, 0x7a3410, 0.9);
+    // Cool from above, warm bounce from the molten floor.
+    const hemi = new THREE.HemisphereLight(0x3a6c7e, 0x8a3a10, 1.6);
     this.scene.add(hemi);
 
     // The key is firelight from high up, around 2000 K. It exists to read
     // silhouettes and cast shadows; it must never suggest a sky.
-    this.sun = new THREE.DirectionalLight(0xff8c3a, 0.85);
+    this.sun = new THREE.DirectionalLight(0xff9040, 1.15);
     this.sun.position.set(14, 30, 10);
     this.sun.castShadow = quality.shadows;
     if (quality.shadows) {
@@ -291,15 +368,22 @@ export class SceneRig {
     this.scene.add(this.sun.target);
 
     /* ---- post-processing ---- */
-    this.composer = new EffectComposer(this.renderer);
+    // The composer needs its own target carrying a depth texture, because the
+    // ink pass reads scene depth and the default target does not keep it.
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+      type: THREE.HalfFloatType,
+      depthTexture: new THREE.DepthTexture(size.x, size.y),
+    });
+    this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
     if (quality.bloom) {
       this.bloomPass = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.85, // strength — torches should visibly bleed into the dark
-        0.70, // radius
-        0.50, // threshold
+        0.48, // strength — a glow around fire, not a haze over everything
+        0.55, // radius
+        0.78, // threshold: only genuinely hot things bloom
       );
       this.composer.addPass(this.bloomPass);
     } else {
@@ -311,6 +395,17 @@ export class SceneRig {
     // display space where the numbers mean what they look like.
     this.gradePass = new ShaderPass(GRADE_SHADER);
     this.composer.addPass(this.gradePass);
+
+    // Ink after the grade and before anti-aliasing: after, so bloom cannot
+    // bleed over the lines and soften them; before, so the lines themselves get
+    // smoothed instead of stair-stepping.
+    this.edgePass = new ShaderPass(EDGE_SHADER);
+    this.edgePass.enabled = quality.outlines;
+    this.edgePass.material.uniforms.tDepth.value = target.depthTexture;
+    this.edgePass.material.uniforms.uNear.value = this.camera.near;
+    this.edgePass.material.uniforms.uFar.value = this.camera.far;
+    this.edgePass.material.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
+    this.composer.addPass(this.edgePass);
 
     // Anti-aliasing last, on the graded image, so it smooths what is actually
     // on screen rather than something the grade then re-sharpens.
@@ -340,7 +435,10 @@ export class SceneRig {
     this.composer.setSize(w, h);
     this.bloomPass?.setSize(w, h);
     this.gradePass.setSize(w, h);
+    this.edgePass.setSize(w, h);
     this.smaaPass.setSize(w, h);
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.edgePass.material.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
   };
 
   /** Keep the shadow frustum tracking whatever the camera is looking at. */
@@ -360,6 +458,7 @@ export class SceneRig {
     this.sun.castShadow = quality.shadows;
     if (this.bloomPass) this.bloomPass.enabled = quality.bloom;
     this.smaaPass.enabled = quality.smaa;
+    this.edgePass.enabled = quality.outlines;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
   }
 

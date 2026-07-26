@@ -158,15 +158,15 @@ export class TerrainRenderer {
       map: floorAtlas.map,
       normalMap: floorAtlas.normalMap,
       roughnessMap: floorAtlas.roughnessMap,
-      metalnessMap: floorAtlas.roughnessMap,
       emissiveMap: floorAtlas.emissiveMap,
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 1.0,
       roughness: 1.0,
-      metalness: 1.0,
-      // Stone is not a mirror. Just enough of the dungeon's own bounce to give
-      // damp flagstone a sheen where the torchlight rakes across it.
-      envMapIntensity: 0.45,
+      // Metalness was driven straight off the roughness map, which speckled
+      // every flagstone with tiny mirror highlights and read as noise. Stone is
+      // not metal; the sheen comes from the environment term instead.
+      metalness: 0.0,
+      envMapIntensity: 0.35,
       normalScale: new THREE.Vector2(1.1, 1.1),
     });
     applyAtlasShader(this.floorMaterial, floorAtlas);
@@ -210,13 +210,12 @@ export class TerrainRenderer {
       map: wallAtlas.map,
       normalMap: wallAtlas.normalMap,
       roughnessMap: wallAtlas.roughnessMap,
-      metalnessMap: wallAtlas.roughnessMap,
       emissiveMap: wallAtlas.emissiveMap,
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 1.0,
       roughness: 1.0,
-      metalness: 1.0,
-      envMapIntensity: 0.40,
+      metalness: 0.0,
+      envMapIntensity: 0.30,
       normalScale: new THREE.Vector2(1.35, 1.35),
     });
     applyAtlasShader(this.wallMaterial, wallAtlas);

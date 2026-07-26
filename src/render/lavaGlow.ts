@@ -124,7 +124,7 @@ export class LavaGlow {
       const churn = 0.86
         + 0.1 * Math.sin(time * 0.9 + i * 2.1)
         + 0.06 * Math.sin(time * 2.3 + i);
-      light.intensity = (6 + Math.min(10, pool.size * 0.55)) * reach * churn;
+      light.intensity = (3.5 + Math.min(6, pool.size * 0.32)) * reach * churn;
     }
   }
 
