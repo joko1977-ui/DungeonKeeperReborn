@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { celRamp } from './celRamp';
 import { Terrain } from '../core/constants';
 import { DOOR_SPECS, DoorType, TRAP_SPECS, TrapType } from '../core/devices';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
@@ -254,7 +255,7 @@ export class DeviceRenderer {
   readonly group = new THREE.Group();
 
   private readonly map: TileMap;
-  private readonly body: THREE.MeshStandardMaterial;
+  private readonly body: THREE.MeshToonMaterial;
   private readonly runeMaterial: THREE.MeshBasicMaterial;
   private readonly gasMaterial: THREE.MeshBasicMaterial;
 
@@ -275,14 +276,14 @@ export class DeviceRenderer {
   constructor(map: TileMap) {
     this.map = map;
 
-    // Traps and doors are mostly ironwork, so they lean metallic and pick up
-    // the dungeon's reflection — an iron door with no specular response reads
-    // as a painted plank.
-    this.body = new THREE.MeshStandardMaterial({
+    // Ironwork, and cel-shaded like everything else. It was metallic with a real
+    // environment reflection, on the argument that an iron door with no specular
+    // response reads as a painted plank — true of a rendered door and beside the
+    // point for a drawn one, where a plate of iron is a flat grey shape with a
+    // hard highlight down one edge. The ramp supplies the highlight.
+    this.body = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.46,
-      metalness: 0.6,
-      envMapIntensity: 1.3,
+      gradientMap: celRamp(),
     });
     // Flat and bright rather than emissive: an emissive material with its own
     // colour fights the per-instance colour and every trap ends up the same

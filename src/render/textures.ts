@@ -88,6 +88,33 @@ function cellular(x: number, y: number, period: number, rnd: (n: number) => numb
   return Math.min(1, best);
 }
 
+/**
+ * A hard-edged band of lines crossing the tile — a seam, a crack, a mortar joint.
+ *
+ * The counterpart to the noise above, and what most of these recipes needed all
+ * along. Fractal noise erodes a surface, which is how nature makes rock and how a
+ * renderer likes to describe it; a comic *draws* rock, as a few decided lines with
+ * flat fill between them. Noise cannot produce a decided line at any amplitude —
+ * turned up it is chaos and turned down it is grain — so the lines have to be
+ * their own primitive.
+ *
+ * `ax`/`ay` must be whole numbers and `count` too: the band direction is then
+ * commensurate with the tile and the pattern wraps seamlessly, which noise gets
+ * for free and a straight line does not.
+ *
+ * Returns 1 at the centre of a line, falling to 0 at its edge.
+ */
+function bands(
+  x: number, y: number, rnd: (n: number) => number,
+  ax: number, ay: number, count: number, width: number, wobble = 0,
+): number {
+  let t = (x * ax + y * ay) * count;
+  if (wobble > 0) t += fbm(x * 3, y * 3, 2, 3, rnd) * wobble;
+  const frac = t - Math.floor(t);
+  const d = Math.abs(frac - 0.5) * 2;
+  return d < width ? 1 - d / width : 0;
+}
+
 /* ------------------------------------------------------------ recipes ---- */
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -109,13 +136,21 @@ const ROCK: MaterialRecipe = {
     // an image with one hue in it has no depth however carefully it is lit. Real
     // basalt is blue-grey; warm light falling on it reads *as warm light*, and the
     // faces the fire misses fall cool. That contrast is the whole look.
-    const grit = fbm(x * 26, y * 26, 3, 26, rnd);
-    const t = clamp01(h * lerp(0.86, 1.14, grit));
-    return [
-      lerp(0.101, 0.192, t),
-      lerp(0.110, 0.206, t),
-      lerp(0.128, 0.231, t),
-    ];
+    const grit = fbm(x * 12, y * 12, 2, 12, rnd);
+    const t = clamp01(h * lerp(0.92, 1.10, grit));
+    let r = lerp(0.101, 0.192, t);
+    let g = lerp(0.110, 0.206, t);
+    let b = lerp(0.128, 0.231, t);
+    // Two drawn fissures, at an angle to each other so the wall has a grain.
+    const crack = Math.max(
+      bands(x, y, rnd, 1, -2, 1, 0.05, 0.45),
+      bands(x, y, rnd, 2, 1, 1, 0.035, 0.5) * 0.7,
+    );
+    if (crack > 0) {
+      const k = 1 - crack * 0.55;
+      r *= k; g *= k; b *= k;
+    }
+    return [r, g, b];
   },
   roughness: (h) => lerp(0.90, 0.75, h),
 };
@@ -155,19 +190,35 @@ const GOLD: MaterialRecipe = {
     fbm(x * 5, y * 5, 4, 5, rnd) * 0.6 + cellular(x * 6, y * 6, 6, rnd) * 0.4,
   ),
   color: (h, x, y, rnd) => {
-    // Seams, not a wall of gold. At a 0.56 threshold and an albedo peaking at
-    // pure yellow, an ore wall was the brightest surface in the game and there
-    // are dozens of them: whole quarters of the map read as sheets of flame, and
-    // the eye had nothing to settle on. Rarer and darker, with the metal doing its
-    // work through specular highlights instead of raw brightness.
-    const vein = fbm(x * 9 + 3.1, y * 9, 3, 9, rnd);
-    const isVein = vein > 0.66;
-    if (isVein) {
-      const t = clamp01((vein - 0.66) * 5);
-      return [lerp(0.30, 0.72, t), lerp(0.21, 0.53, t), lerp(0.06, 0.17, t)];
-    }
+    /*
+     * Two drawn seams running through cool rock.
+     *
+     * This was fractal noise thresholded into veins, which under flat shading
+     * stopped reading as ore at all: the blobs scattered across every face like
+     * orange commas, dozens of walls of them, and the eye had nothing to settle
+     * on. A seam is a *line* — that is what the word means — so it is drawn as
+     * one, wide with a bright core, wandering just enough not to look ruled.
+     */
+    const seam = Math.max(
+      bands(x, y, rnd, 1, 1, 1, 0.17, 0.30),
+      bands(x, y, rnd, 1, -2, 1, 0.10, 0.35) * 0.8,
+    );
     const v = lerp(0.11, 0.26, h);
-    return [v * 0.88, v * 0.95, v * 1.08];
+    const rock: [number, number, number] = [v * 0.88, v * 0.95, v * 1.08];
+    if (seam <= 0) return rock;
+    // Core bright, shoulders dull, so a seam has a shape across its width.
+    const core = clamp01((seam - 0.35) / 0.65);
+    // Gold, not fire. Bright enough to be the thing you look for on a wall and
+    // no brighter: at a near-yellow core these chained across tile edges into
+    // continuous glowing zigzags and outshone the lava.
+    // Yellow rather than orange. At an orange core these read as cracks with fire
+    // behind them — which is a thing this dungeon also has, three tiles away, and
+    // the two must not look alike. Metal is yellow: green close behind red.
+    return [
+      lerp(rock[0], lerp(0.27, 0.54, core), Math.min(1, seam * 2)),
+      lerp(rock[1], lerp(0.22, 0.46, core), Math.min(1, seam * 2)),
+      lerp(rock[2], lerp(0.06, 0.14, core), Math.min(1, seam * 2)),
+    ];
   },
   roughness: (h) => lerp(0.9, 0.35, h),
 };
@@ -175,11 +226,27 @@ const GOLD: MaterialRecipe = {
 /** Gem seam: cool crystalline facets that glow faintly. */
 const GEMS: MaterialRecipe = {
   name: 'gems',
-  height: (x, y, rnd) => clamp01(1 - cellular(x * 7, y * 7, 7, rnd) * 1.2),
-  color: (h) => [lerp(0.05, 0.30, h), lerp(0.22, 0.85, h), lerp(0.30, 0.95, h)],
+  // Four big facets rather than a field of small ones. Posterised, the old
+  // seven-cell pattern came out as flat blobs the size of a fist scattered over
+  // every face — a cow hide, not a crystal. A crystal reads by having few, large,
+  // clearly-bounded planes at different angles, and the ink pass on the height
+  // step draws the edges between them.
+  height: (x, y, rnd) => clamp01(1 - cellular(x * 3, y * 3, 3, rnd) * 1.05),
+  color: (h) => {
+    // Crystal only in the top of the range; the rest is the rock it grew in. A
+    // ramp across the whole range gave every face an even split of pale and dark
+    // that posterised into camouflage.
+    if (h < 0.70) {
+      const v = lerp(0.07, 0.13, h / 0.70);
+      return [v * 0.8, v * 0.95, v * 1.2];
+    }
+    const t = (h - 0.70) / 0.30;
+    return [lerp(0.10, 0.30, t), lerp(0.34, 0.74, t), lerp(0.44, 0.88, t)];
+  },
   roughness: (h) => lerp(0.55, 0.08, h),
   emissive: (h) => {
-    const g = Math.pow(h, 3) * 0.55;
+    // Only the brightest facet glows, so a seam has a highlight rather than a haze.
+    const g = Math.pow(clamp01((h - 0.70) / 0.30), 2) * 0.5;
     return [g * 0.15, g * 0.75, g];
   },
 };
@@ -247,10 +314,12 @@ const FLAGSTONE: MaterialRecipe = {
     // Molten rock showing through the cracks between the flags.
     const glow = crackGlow(x, y, rnd);
     if (glow <= 0) return stone;
+    // Warm, not white. Posterised, a crack running to pure white came out as
+    // hard bright dots scattered over the floor of every room.
     return [
-      lerp(stone[0], 1.0, glow),
-      lerp(stone[1], 0.42, glow),
-      lerp(stone[2], 0.0, glow),
+      lerp(stone[0], 0.62, glow),
+      lerp(stone[1], 0.24, glow),
+      lerp(stone[2], 0.03, glow),
     ];
   },
   roughness: (h) => lerp(0.90, 0.72, h),
@@ -424,9 +493,14 @@ const LAVA: MaterialRecipe = {
   // Near-mirror where it is molten, per the brief's 0.1-0.2.
   roughness: (h) => (h < 0.24 ? lerp(0.10, 0.20, h / 0.24) : lerp(0.6, 0.9, h)),
   emissive: (h) => {
-    if (h > 0.3) return [0.03, 0.006, 0];
-    const t = 1 - clamp01(h / 0.3);
-    return [t * 3.4, t * 1.05, t * 0.10];
+    // A hard step, not a falloff: crust is dark and the gaps between the plates
+    // are molten, with nothing in between. Posterised, the old smooth ramp broke
+    // into concentric rings and read as a sponge.
+    if (h > 0.26) return [0.03, 0.006, 0];
+    const t = clamp01((0.26 - h) / 0.26);
+    // Held under the clipping point on the red channel, so molten rock reads as
+    // orange with shape in it rather than as a white-hot dotted sponge.
+    return [0.85 + t * 0.7, 0.30 + t * 0.30, 0.03 + t * 0.04];
   },
 };
 
@@ -457,6 +531,48 @@ export interface GeneratedAtlas {
   count: number;
 }
 
+/** How many flat steps a surface's value is collapsed into. */
+const POSTER_STEPS = 5;
+
+/** Height gradient above which a step counts as an edge worth inking. */
+const INK_THRESHOLD = 0.055;
+const INK_DEPTH = 0.62;
+
+/** Magnitude of the local height change, 0..1-ish. */
+function gradientAt(
+  at: (x: number, y: number) => number, x: number, y: number,
+): number {
+  const dx = at(x + 1, y) - at(x - 1, y);
+  const dy = at(x, y + 1) - at(x, y - 1);
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * Collapse a colour into flat bands and darken it where the surface steps.
+ *
+ * Posterising in luminance rather than per channel: quantising each channel on its
+ * own shifts hue as the steps land on different boundaries, so a brown stone drifts
+ * green in its mid-tones. Scaling all three by the ratio between the quantised and
+ * original luminance keeps the hue exactly and moves only the value, which is what
+ * a flat fill is.
+ */
+function inkAndPosterise(
+  r: number, g: number, b: number, gradient: number,
+): [number, number, number] {
+  const luma = 0.3 * r + 0.6 * g + 0.1 * b;
+  if (luma > 0.001) {
+    const stepped = Math.round(luma * POSTER_STEPS) / POSTER_STEPS;
+    const scale = stepped / luma;
+    r *= scale; g *= scale; b *= scale;
+  }
+  if (gradient > INK_THRESHOLD) {
+    // Hard-edged, not a gradient: a line has one weight or it is shading.
+    const ink = 1 - INK_DEPTH;
+    r *= ink; g *= ink; b *= ink;
+  }
+  return [clamp01(r), clamp01(g), clamp01(b)];
+}
+
 /** Render one recipe's height field, then derive colour/normal/roughness from it. */
 function bakeRecipe(
   recipe: MaterialRecipe,
@@ -476,7 +592,8 @@ function bakeRecipe(
   const rough = new Uint8ClampedArray(size * size * 4);
   const emissive = new Uint8ClampedArray(size * size * 4);
 
-  // Sobel over the height field gives us a normal map with real relief.
+  // Sobel over the height field gives us a normal map with real relief, and the
+  // same gradient tells us where to draw the ink.
   const at = (x: number, y: number) => heights[((y + size) % size) * size + ((x + size) % size)];
   const strength = 2.6;
 
@@ -485,7 +602,19 @@ function bakeRecipe(
       const i = (y * size + x) * 4;
       const h = heights[y * size + x];
 
-      const [r, g, b] = recipe.color(h, x / size, y / size, rnd);
+      const [r0, g0, b0] = recipe.color(h, x / size, y / size, rnd);
+      // Flat bands, then a line where the surface steps.
+      //
+      // The recipes describe surfaces the way a photograph does: continuous noise,
+      // every pixel a slightly different value. That is the wrong description for
+      // this style twice over — it fights the flat cel shading over the top of it,
+      // and at one tile across a screen it resolves to grain rather than to
+      // anything. Posterising collapses it into a few flat areas with hard borders,
+      // which is how a drawing describes stone; inking the height steps draws the
+      // line a comic would draw around them. Together they turn every material in
+      // the game from rendered rock into drawn rock, and it is one rule applied
+      // everywhere rather than eleven hand-redrawn recipes.
+      const [r, g, b] = inkAndPosterise(r0, g0, b0, gradientAt(at, x, y));
       color[i] = r * 255; color[i + 1] = g * 255; color[i + 2] = b * 255; color[i + 3] = 255;
 
       const dx =

@@ -400,9 +400,17 @@ export class SceneRig {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
     this.renderer.setSize(width, height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // Down from 1.7: the warm highlights were clipping, and a clipped warm
-    // highlight is a flat orange patch with no shape in it.
-    this.renderer.toneMappingExposure = 1.5;
+    /*
+     * Down again, to 1.2.
+     *
+     * Two reasons. Warm highlights were clipping at 1.7, and a clipped warm
+     * highlight is a flat orange patch with no shape in it. And the surfaces are
+     * cel-shaded now: a toon material has no specular lobe and no roughness to
+     * lose energy to, so the same lights land a good deal harder on it than they
+     * did on the physically-based version, and every lit wall came out as pale
+     * cream paper.
+     */
+    this.renderer.toneMappingExposure = 1.2;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;

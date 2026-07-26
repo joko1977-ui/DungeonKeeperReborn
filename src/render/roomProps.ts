@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OWNER_COLORS, Owner, RoomType, Terrain, isSolid } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
+import { celRamp } from './celRamp';
 
 /**
  * The furniture that makes a room a room.
@@ -207,11 +208,11 @@ export class RoomPropRenderer {
   readonly group = new THREE.Group();
 
   private readonly map: TileMap;
-  private readonly material: THREE.MeshStandardMaterial;
-  private readonly goldMaterial: THREE.MeshStandardMaterial;
+  private readonly material: THREE.MeshToonMaterial;
+  private readonly goldMaterial: THREE.MeshToonMaterial;
   private readonly loosePiles: THREE.InstancedMesh;
-  private readonly heartMaterial: THREE.MeshStandardMaterial;
-  private readonly portalMaterial: THREE.MeshStandardMaterial;
+  private readonly heartMaterial: THREE.MeshToonMaterial;
+  private readonly portalMaterial: THREE.MeshToonMaterial;
   /** Both centrepieces light their own chamber. */
   private readonly heartLights: THREE.PointLight[] = [];
   private readonly portalLights: THREE.PointLight[] = [];
@@ -239,40 +240,40 @@ export class RoomPropRenderer {
     // this is a compromise: rough enough for timber, metallic enough that the
     // gold heaps and the anvil catch the dungeon's reflection instead of
     // reading as flat paint.
-    this.material = new THREE.MeshStandardMaterial({
+    /*
+     * Toon, on the same ramp as the creatures and the walls.
+     *
+     * The furniture was the last physically-based thing in the frame, and it
+     * showed: a metallic anvil with a smooth environment reflection standing on a
+     * cel-shaded floor, next to a cel-shaded troll. Reflections are the giveaway
+     * — nothing in a drawing reflects its surroundings — so they go, and what
+     * carries the material now is the shape and the flat colour it was built with.
+     */
+    this.material = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.58,
-      metalness: 0.42,
-      envMapIntensity: 1.15,
+      gradientMap: celRamp(),
     });
-    // Gold gets its own material: fully metallic at roughness 0.2, which is what
-    // makes a treasure pile read as treasure rather than as yellow gravel.
-    this.goldMaterial = new THREE.MeshStandardMaterial({
+    // Gold keeps a faint glow of its own instead of a mirror finish: it is the one
+    // thing in a treasury that has to read as treasure from across the room, and
+    // with no specular left that has to come from somewhere.
+    this.goldMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.2,
-      metalness: 1.0,
-      envMapIntensity: 2.4,
-      emissive: new THREE.Color(0x2a1a00),
-      emissiveIntensity: 1,
+      gradientMap: celRamp(),
+      emissive: new THREE.Color(0x6a4a12),
+      emissiveIntensity: 0.55,
     });
-    // The heart and the portal each need their OWN emissive colour. Sharing
-    // one material with white emissive drowned the per-instance keeper colour
-    // and rendered the heart as a white blob.
-    this.heartMaterial = new THREE.MeshStandardMaterial({
+    // The heart and the portal each need their OWN emissive colour. Sharing one
+    // material with white emissive drowned the per-instance keeper colour and
+    // rendered the heart as a white blob.
+    this.heartMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.45,
-      metalness: 0.05,
-      // Turned well down. The heart was the brightest thing on screen by a
-      // wide margin and it flattened everything near it into a red smear —
-      // a landmark should draw the eye, not own the frame.
+      gradientMap: celRamp(),
       emissive: new THREE.Color(0x6a0f0c),
       emissiveIntensity: 0.35,
-      envMapIntensity: 0.4,
     });
-    this.portalMaterial = new THREE.MeshStandardMaterial({
+    this.portalMaterial = new THREE.MeshToonMaterial({
       vertexColors: true,
-      roughness: 0.3,
-      metalness: 0.1,
+      gradientMap: celRamp(),
       emissive: new THREE.Color(0x4a2078),
       emissiveIntensity: 0.4,
     });

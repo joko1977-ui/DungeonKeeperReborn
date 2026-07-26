@@ -13,38 +13,8 @@ import {
 } from './creatureRank';
 import { makeGlowTexture } from './textures';
 
-/**
- * The cel ramp: how light falls across a creature.
- *
- * Three hard steps, no blend between them. This is the whole trick behind the
- * anime look and it is not a filter — it changes how the lighting integral is
- * resolved, so a rounded limb stops being a smooth gradient and becomes a lit
- * shape with a shadow shape beside it and a hard line where they meet. Every
- * other stylisation in this game was cosmetic on top of realistic shading;
- * this is the shading.
- *
- * Nearest filtering is mandatory — a linearly filtered ramp is just a gradient
- * again, which is exactly what it is here to stop being.
- */
-function makeCelRamp(): THREE.DataTexture {
-  // Deep shadow, mid, lit — and the range is deliberately compressed at both
-  // ends. A ramp that runs all the way to white blows the lit side out to flat
-  // paper under this warm key, and one that runs to black turns the shadow side
-  // into a hole; both throw away the creature's own colour, which is the thing
-  // the flat shading is supposed to show off.
-  const steps = new Uint8Array([
-    112, 108, 118, 255,
-    180, 176, 178, 255,
-    238, 234, 228, 255,
-  ]);
-  const tex = new THREE.DataTexture(steps, 3, 1, THREE.RGBAFormat);
-  tex.minFilter = THREE.NearestFilter;
-  tex.magFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  return tex;
-}
 import { PartBuilder } from './creatureModels';
+import { celRamp } from './celRamp';
 
 /** A bulging sack with coins spilling over the tie. */
 function buildGoldSack(): THREE.BufferGeometry {
@@ -121,7 +91,7 @@ export class CreatureRenderer {
   private readonly pickTable = new Map<THREE.InstancedMesh, Creature[]>();
 
   constructor() {
-    this.celRamp = makeCelRamp();
+    this.celRamp = celRamp();
     // Toon, not standard. A physically-based material spreads light smoothly
     // across a curved surface, and smooth is the opposite of what this style
     // wants: manga shades a limb as one flat colour with one flat shadow and a

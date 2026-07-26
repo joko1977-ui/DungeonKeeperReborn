@@ -9,6 +9,7 @@ import {
 } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { GeneratedAtlas, getFloorAtlas, getWallAtlas } from './textures';
+import { celRamp } from './celRamp';
 
 /**
  * Draws the whole dungeon in two instanced draw calls.
@@ -67,13 +68,15 @@ function wallSlotFor(map: TileMap, i: number): number {
 }
 
 /**
- * Patch a MeshStandardMaterial so each instance samples its own atlas cell.
+ * Patch a material so each instance samples its own atlas cell.
  *
- * The standard shader builds all its UV varyings inside `<uv_vertex>`, so we
- * append there and rewrite them in one go. Everything downstream — normal
- * mapping, roughness, emissive — then reads the right cell for free.
+ * Three's shaders build all their UV varyings inside `<uv_vertex>`, so we append
+ * there and rewrite them in one go. Everything downstream — normal mapping,
+ * emissive — then reads the right cell for free. The roughness and metalness
+ * blocks are guarded by their own defines, so they simply drop out on a toon
+ * material, which has neither.
  */
-function applyAtlasShader(material: THREE.MeshStandardMaterial, atlas: GeneratedAtlas): void {
+function applyAtlasShader(material: THREE.Material, atlas: GeneratedAtlas): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAtlasCols = { value: atlas.cols };
     shader.uniforms.uAtlasRows = { value: atlas.rows };
@@ -130,8 +133,8 @@ export class TerrainRenderer {
   /** Glowing tags on walls the keeper has marked for excavation. */
   private readonly markMesh: THREE.InstancedMesh;
 
-  private readonly floorMaterial: THREE.MeshStandardMaterial;
-  private readonly wallMaterial: THREE.MeshStandardMaterial;
+  private readonly floorMaterial: THREE.MeshToonMaterial;
+  private readonly wallMaterial: THREE.MeshToonMaterial;
   private readonly markMaterial: THREE.MeshBasicMaterial;
 
   private lastVersion = -1;
@@ -154,20 +157,29 @@ export class TerrainRenderer {
     /* ---- floors ---- */
     const floorGeo = new THREE.PlaneGeometry(1, 1);
     floorGeo.rotateX(-Math.PI / 2);
-    this.floorMaterial = new THREE.MeshStandardMaterial({
+    /*
+     * Toon, like everything else in the frame.
+     *
+     * A physically-based floor spreads torchlight across itself as a smooth
+     * gradient, which is a photograph of a floor. The creatures standing on it are
+     * shaded in three flat steps with hard edges between them, and the mismatch was
+     * the loudest thing about the look: they read as stickers on a rendered scene
+     * rather than as figures in a drawing. Same ramp, same hard steps, one picture.
+     *
+     * Toon has no roughness or metalness, which is a feature here. Those maps were
+     * what put a mirror sparkle on every flagstone.
+     */
+    this.floorMaterial = new THREE.MeshToonMaterial({
       map: floorAtlas.map,
+      gradientMap: celRamp(),
       normalMap: floorAtlas.normalMap,
-      roughnessMap: floorAtlas.roughnessMap,
       emissiveMap: floorAtlas.emissiveMap,
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 1.0,
-      roughness: 1.0,
-      // Metalness was driven straight off the roughness map, which speckled
-      // every flagstone with tiny mirror highlights and read as noise. Stone is
-      // not metal; the sheen comes from the environment term instead.
-      metalness: 0.0,
-      envMapIntensity: 0.35,
-      normalScale: new THREE.Vector2(1.1, 1.1),
+      // A fraction of what it was. A strong normal map is a continuous shading
+      // gradient by another name, and the flat bands are baked into the colour
+      // now; this is left only so a surface is not perfectly dead.
+      normalScale: new THREE.Vector2(0.32, 0.32),
     });
     applyAtlasShader(this.floorMaterial, floorAtlas);
 
@@ -206,17 +218,14 @@ export class TerrainRenderer {
       merged.computeVertexNormals();
       return merged;
     })();
-    this.wallMaterial = new THREE.MeshStandardMaterial({
+    this.wallMaterial = new THREE.MeshToonMaterial({
       map: wallAtlas.map,
+      gradientMap: celRamp(),
       normalMap: wallAtlas.normalMap,
-      roughnessMap: wallAtlas.roughnessMap,
       emissiveMap: wallAtlas.emissiveMap,
       emissive: new THREE.Color(0xffffff),
       emissiveIntensity: 1.0,
-      roughness: 1.0,
-      metalness: 0.0,
-      envMapIntensity: 0.30,
-      normalScale: new THREE.Vector2(1.35, 1.35),
+      normalScale: new THREE.Vector2(0.38, 0.38),
     });
     applyAtlasShader(this.wallMaterial, wallAtlas);
 
