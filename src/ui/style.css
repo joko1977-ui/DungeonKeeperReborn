@@ -916,3 +916,61 @@ dl.objectives.outcome dt.missed { color: var(--text-dim); }
   /* Width is not short here, so the map can keep its size. */
   #minimap-block { width: 150px; grid-template-columns: 74px minmax(0, 1fr); }
 }
+
+/* ------------------------------------------------------------- compass -- */
+
+/*
+ * Edge-of-screen pointers to the things a level is about.
+ *
+ * Laid out inside the play area rather than the window: a marker that slides
+ * under the keeper's panel or behind the top strip is pointing at something you
+ * cannot see it point at.
+ */
+#compass {
+  position: fixed;
+  inset: 46px 14px calc(var(--panel-h) + env(safe-area-inset-bottom) + 14px) 14px;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.compass-mark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 4px;
+  border: 1px solid color-mix(in srgb, var(--mark) 55%, #0c0906);
+  border-radius: 11px;
+  background: rgba(10, 8, 6, 0.72);
+  color: var(--mark);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #000;
+  transition: opacity 200ms ease;
+}
+
+.compass-mark .arrow {
+  display: inline-block;
+  font-size: 9px;
+  line-height: 1;
+  transform-origin: 50% 50%;
+}
+
+.compass-mark .dist {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.compass-mark .dist::after { content: ' tiles'; opacity: 0.55; }
+
+/* Once the thing is actually in view the pointer has done its job and should
+   get out of the way — the beacon over it takes over from here. */
+.compass-mark.on-screen { opacity: 0.32; }
+.compass-mark.on-screen .arrow { display: none; }
+
+@media (max-width: 560px), (max-height: 460px) {
+  #compass { inset: 40px 8px calc(var(--panel-h) + env(safe-area-inset-bottom) + 8px) 8px; }
+  .compass-mark { font-size: 10px; padding: 1px 5px 1px 3px; }
+  .compass-mark .dist::after { content: ''; }
+}

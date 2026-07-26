@@ -22,6 +22,7 @@ import { AudioEngine } from './audio/audio';
 import { AudioDirector } from './audio/director';
 import { Narrator } from './audio/narrator';
 import { Hud } from './ui/hud';
+import { ObjectiveCompass } from './ui/compass';
 import { ObjectivePanel } from './ui/objectivePanel';
 import { showBriefing, showOutcome } from './ui/overlay';
 
@@ -100,6 +101,7 @@ hud = new Hud(uiRoot, game, {
 });
 
 const objectivePanel = new ObjectivePanel(uiRoot, game);
+const compass = new ObjectiveCompass(uiRoot, game, rig.camera);
 
 /* ------------------------------------------------------------ top strip -- */
 
@@ -204,6 +206,7 @@ function frame(): void {
 
   camera.update(dt);
   rig.followTarget(camera.target);
+  rig.setFogForDistance(camera.getDistance());
 
   terrain.syncIfDirty();
   terrain.update(time);
@@ -241,6 +244,7 @@ function frame(): void {
 
   hud.update();
   objectivePanel.update();
+  compass.update(dt);
   hud.minimap.draw(camera.target.x, camera.target.z, camera.getYaw(), camera.getDistance());
 
   rosterTimer += dt;
@@ -351,6 +355,7 @@ if (import.meta.hot) {
     camera.dispose();
     hud.dispose();
     objectivePanel.dispose();
+    compass.dispose();
     terrain.dispose();
     roomProps.dispose();
     devices.dispose();

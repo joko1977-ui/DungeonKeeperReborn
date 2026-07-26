@@ -119,6 +119,35 @@ function applyAtlasShader(
          }`,
       );
 
+    /*
+     * A floor of light on ground you have already explored.
+     *
+     * Everything outside torch range rendered at pure black, so a dungeon you had
+     * spent ten minutes digging simply was not there when you zoomed out — the
+     * map read as a small lit island in a void, and "where is the rival keeper"
+     * or "which way did that corridor go" were unanswerable questions about a
+     * place you had personally excavated. No game since about 1995 forgets what
+     * you have seen.
+     *
+     * A minimum on the outgoing light rather than more ambient in the scene,
+     * because it has to apply *only* to terrain you have discovered — which is
+     * exactly and only the terrain this renderer draws, since the rebuild skips
+     * anything unrevealed. Ambient would have lifted the creatures and the props
+     * with it and washed the lit rooms out.
+     */
+    shader.uniforms.uMinLight = { value: 0.26 };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform float uMinLight;`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `outgoingLight = max( outgoingLight, diffuseColor.rgb * uMinLight );
+         #include <opaque_fragment>`,
+      );
+
     if (!contactShading) return;
 
     /*

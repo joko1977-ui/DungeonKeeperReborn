@@ -598,6 +598,26 @@ export class SceneRig {
     this.edgePass.material.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
   };
 
+  /**
+   * Thin the fog out as the camera pulls back.
+   *
+   * Exponential fog at a fixed density is right for the view you play in and
+   * wrong for the view you plan in. At nine units it is atmosphere — the far side
+   * of a room fading into the dark, which is most of what makes a dungeon feel
+   * underground. At forty it is a blindfold: three quarters of every distant tile
+   * is replaced by fog colour, so a dungeon you spent ten minutes digging is a
+   * dim smudge exactly when you zoom out to look at the whole of it.
+   *
+   * So the density falls with distance. Nothing is revealed that was not already
+   * explored — this only stops the atmosphere eating what the player has earned.
+   */
+  setFogForDistance(distance: number): void {
+    const fog = this.scene.fog as THREE.FogExp2 | null;
+    if (!fog) return;
+    const t = Math.max(0, Math.min(1, (distance - 12) / 26));
+    fog.density = 0.030 - t * 0.021;
+  }
+
   /** Keep the shadow frustum tracking whatever the camera is looking at. */
   followTarget(target: THREE.Vector3): void {
     this.sun.position.set(target.x + 14, 30, target.z + 10);
