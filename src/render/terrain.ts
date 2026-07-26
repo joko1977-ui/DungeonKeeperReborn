@@ -76,9 +76,45 @@ function wallSlotFor(map: TileMap, i: number): number {
  * blocks are guarded by their own defines, so they simply drop out on a toon
  * material, which has neither.
  */
+/**
+ * The wave that drives every liquid surface, shared by both shader stages.
+ *
+ * Three directional sines at incommensurable frequencies, evaluated in *world*
+ * space. World space is the whole point: a per-tile animation makes a lava lake
+ * into a grid of squares each doing its own thing, which is worse than a still
+ * one. Sampling the same field at the same world coordinate means neighbouring
+ * tiles agree at their shared corners, so the lake moves as one sheet.
+ */
+const LIQUID_WAVE_GLSL = `
+  float liquidWave( vec2 p, float t ) {
+    return sin( p.x * 1.70 + t * 1.05 ) * 0.45
+         + sin( p.y * 2.15 - t * 0.83 ) * 0.32
+         + sin( ( p.x + p.y ) * 3.05 + t * 1.60 ) * 0.23
+         // Off-axis, and at a frequency that shares no factor with the others:
+         // three waves alone repeat visibly, and a lake of identical S-bends is
+         // as obviously manufactured as no motion at all.
+         + sin( ( p.x * 0.83 - p.y * 1.55 ) * 2.10 - t * 0.62 ) * 0.19;
+  }
+
+  // Lava is molten rock: broad, slow, heavy. Water is not.
+  float liquidField( vec2 p, float kind, float t ) {
+    return kind > 1.5
+      ? liquidWave( p * 0.72, t * 0.55 )
+      : liquidWave( p * 1.15, t * 1.25 );
+  }
+`;
+
+interface AtlasOptions {
+  /** Darken a floor tile where it meets a wall. Floors only. */
+  contactShading?: boolean;
+  /** Animate lava and water. Pass the shared clock uniform to enable it. */
+  time?: THREE.IUniform<number>;
+}
+
 function applyAtlasShader(
-  material: THREE.Material, atlas: GeneratedAtlas, contactShading = false,
+  material: THREE.Material, atlas: GeneratedAtlas, options: AtlasOptions = {},
 ): void {
+  const { contactShading = false, time } = options;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uAtlasCols = { value: atlas.cols };
     shader.uniforms.uAtlasRows = { value: atlas.rows };
@@ -147,6 +183,108 @@ function applyAtlasShader(
         `outgoingLight = max( outgoingLight, diffuseColor.rgb * uMinLight );
          #include <opaque_fragment>`,
       );
+
+    /*
+     * Lava that flows and water that moves.
+     *
+     * These are large, and they were completely still. A lake of lava rendered
+     * as a painted orange rectangle is the single most 1997 thing left in the
+     * frame — fire that does not move is not fire, it is wallpaper, and the eye
+     * gives up on it in about a second.
+     *
+     * The surface is displaced in the vertex shader and lit in the fragment
+     * shader from the same field, so the silhouette at the lake's edge rolls
+     * with the shading rather than the shading sliding over a flat plate. Both
+     * are quantised — molten veins in four steps, water crests in three —
+     * because a smooth gradient here would be the one un-cel-shaded thing in a
+     * cel-shaded picture.
+     *
+     * It costs one uniform per frame. The alternative, rewriting instance
+     * colours on the CPU, would have re-uploaded the whole colour buffer every
+     * frame to animate a few dozen tiles, and would still have been square.
+     */
+    if (time) {
+      shader.uniforms.uTime = time;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           attribute float aLiquid;
+           uniform float uTime;
+           varying float vLiquid;
+           varying vec2 vLiquidXZ;
+           ${LIQUID_WAVE_GLSL}`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+           {
+             vec3 liquidBase = transformed;
+             #ifdef USE_INSTANCING
+               liquidBase = ( instanceMatrix * vec4( liquidBase, 1.0 ) ).xyz;
+             #endif
+             liquidBase = ( modelMatrix * vec4( liquidBase, 1.0 ) ).xyz;
+             vLiquidXZ = liquidBase.xz;
+             vLiquid = aLiquid;
+             if ( aLiquid > 0.5 ) {
+               float amp = aLiquid > 1.5 ? 0.060 : 0.038;
+               transformed.y += liquidField( liquidBase.xz, aLiquid, uTime ) * amp;
+             }
+           }`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           uniform float uTime;
+           varying float vLiquid;
+           varying vec2 vLiquidXZ;
+           ${LIQUID_WAVE_GLSL}`,
+        )
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+           if ( vLiquid > 0.5 ) {
+             float w = liquidField( vLiquidXZ, vLiquid, uTime );
+             if ( vLiquid > 1.5 ) {
+               /*
+                * Lava is a dark crust with molten veins in it, not an orange
+                * floor. The veins sit where the field crosses zero, so they
+                * travel across the lake rather than pulsing on the spot, and a
+                * second, faster field cuts hairline cracks between them.
+                *
+                * Narrow is what makes it read. Wide veins gave a sheet of
+                * white-hot nothing: the crust has to dominate for the glow to
+                * mean anything, the same reason a blacksmith's bar looks hot
+                * only because the anvil beside it is not.
+                */
+               float vein = 1.0 - smoothstep( 0.0, 0.17, abs( w ) );
+               float hair = 1.0 - smoothstep( 0.0, 0.06, abs( liquidWave( vLiquidXZ * 2.3, uTime * 0.31 ) ) );
+               vein = max( vein, hair * 0.45 );
+               vein = floor( vein * 3.999 ) / 3.0;
+               // Four steps from a dull red rim to a pale yellow core, because a
+               // river of one flat orange is a painted stripe. Heat has an edge.
+               vec3 hot = mix( vec3( 1.0, 0.14, 0.02 ), vec3( 1.0, 0.62, 0.14 ), vein );
+               diffuseColor.rgb *= mix( 0.80, 1.45, vein );
+               totalEmissiveRadiance += hot * vein * 1.00;
+             } else {
+               /*
+                * Water gets lines, not blobs. Picking the field's peaks lit the
+                * maxima, and the maxima of a 2-D wave are isolated islands — a
+                * pond with pale patches sitting in it, which is what a puddle
+                * looks like, not what moving water looks like. The zero crossings
+                * are continuous curves, so they read as ripples travelling across
+                * the surface, which is also exactly how an illustrator draws it.
+                */
+               float ripple = 1.0 - smoothstep( 0.0, 0.055, abs( w ) );
+               ripple = floor( ripple * 2.999 ) / 2.0;
+               diffuseColor.rgb *= 0.86 + 0.20 * step( 0.0, w );
+               diffuseColor.rgb += vec3( 0.09, 0.19, 0.25 ) * ripple;
+               totalEmissiveRadiance += vec3( 0.04, 0.11, 0.18 ) * ripple * 0.5;
+             }
+           }`,
+        );
+    }
 
     if (!contactShading) return;
 
@@ -219,7 +357,8 @@ function applyAtlasShader(
       );
   };
   // Force a recompile if the material is reused across atlases.
-  material.customProgramCacheKey = () => `atlas-${atlas.cols}x${atlas.rows}-${contactShading}`;
+  material.customProgramCacheKey = () =>
+    `atlas-${atlas.cols}x${atlas.rows}-${contactShading}-${time ? 'liquid' : 'dry'}`;
 }
 
 /**
@@ -257,7 +396,12 @@ export class TerrainRenderer {
   private readonly floorTileAttr: THREE.InstancedBufferAttribute;
   /** Which of a floor tile's eight neighbours are solid, packed per instance. */
   private readonly floorOccAttr: THREE.InstancedBufferAttribute;
+  /** 0 dry, 1 water, 2 lava — what the surface shader should animate. */
+  private readonly floorLiquidAttr: THREE.InstancedBufferAttribute;
   private readonly wallTileAttr: THREE.InstancedBufferAttribute;
+
+  /** Shared clock uniform, so one write a frame animates every liquid tile. */
+  private readonly clock: THREE.IUniform<number> = { value: 0 };
 
   /** Glowing tags on walls the keeper has marked for excavation. */
   private readonly markMesh: THREE.InstancedMesh;
@@ -284,7 +428,10 @@ export class TerrainRenderer {
     const floorAtlas = getFloorAtlas();
 
     /* ---- floors ---- */
-    const floorGeo = new THREE.PlaneGeometry(1, 1);
+    // Subdivided, so a displaced liquid surface has something to bend with. A
+    // single quad only has corners, and corners give a lake made of bilinear
+    // facets; two segments costs four triangles a tile and reads as a sheet.
+    const floorGeo = new THREE.PlaneGeometry(1, 1, 2, 2);
     floorGeo.rotateX(-Math.PI / 2);
     /*
      * Toon, like everything else in the frame.
@@ -310,7 +457,9 @@ export class TerrainRenderer {
       // now; this is left only so a surface is not perfectly dead.
       normalScale: new THREE.Vector2(0.32, 0.32),
     });
-    applyAtlasShader(this.floorMaterial, floorAtlas, true);
+    applyAtlasShader(this.floorMaterial, floorAtlas, {
+      contactShading: true, time: this.clock,
+    });
 
     this.floorMesh = new THREE.InstancedMesh(floorGeo, this.floorMaterial, capacity);
     this.floorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -323,6 +472,9 @@ export class TerrainRenderer {
     this.floorOccAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.floorOccAttr.setUsage(THREE.DynamicDrawUsage);
     floorGeo.setAttribute('aOcc', this.floorOccAttr);
+    this.floorLiquidAttr = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    this.floorLiquidAttr.setUsage(THREE.DynamicDrawUsage);
+    floorGeo.setAttribute('aLiquid', this.floorLiquidAttr);
     this.floorMesh.instanceColor =
       new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     this.floorMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
@@ -487,6 +639,10 @@ export class TerrainRenderer {
           this.floorMesh.setMatrixAt(floorN, dummy.matrix);
           this.floorTileAttr.setX(floorN, floorSlotFor(map, i));
           this.floorOccAttr.setX(floorN, neighbourMask(map, x, y, quarter));
+          this.floorLiquidAttr.setX(
+            floorN,
+            terrain === Terrain.Lava ? 2 : terrain === Terrain.Water ? 1 : 0,
+          );
 
           const fv = 0.86 + tileNoise(i, 5) * 0.28;
           if (terrain === Terrain.Claimed && owner !== Owner.None) {
@@ -515,6 +671,7 @@ export class TerrainRenderer {
     this.floorTileAttr.needsUpdate = true;
     this.wallTileAttr.needsUpdate = true;
     this.floorOccAttr.needsUpdate = true;
+    this.floorLiquidAttr.needsUpdate = true;
     if (this.floorMesh.instanceColor) this.floorMesh.instanceColor.needsUpdate = true;
     if (this.wallMesh.instanceColor) this.wallMesh.instanceColor.needsUpdate = true;
 
@@ -522,8 +679,9 @@ export class TerrainRenderer {
     this.wallMesh.computeBoundingSphere();
   }
 
-  /** Per-frame animation: tag pulse and a slow flicker across emissive surfaces. */
+  /** Per-frame animation: tag pulse, liquid surfaces, emissive flicker. */
   update(time: number): void {
+    this.clock.value = time;
     const pulse = 0.55 + 0.45 * Math.sin(time * 4.5);
     this.markMaterial.opacity = 0.35 + pulse * 0.55;
     // Lava and gems breathe, which sells them as light sources rather than paint.

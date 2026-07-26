@@ -480,41 +480,37 @@ const BRIDGE: MaterialRecipe = {
   roughness: () => 0.93,
 };
 
-/** Still, black subterranean water. */
+/*
+ * The two liquids are drawn almost plain, on purpose.
+ *
+ * They used to carry all their character in the texture — cellular plates for
+ * lava, mottled fbm for water — and it was baked in, so a lake was a photograph
+ * of a lake: the same frozen blobs in the same places for the whole game, and
+ * the tile repeat visible across every one of them. Now the surface shader
+ * animates both from a world-space wave, which means anything the texture also
+ * draws is a second, contradictory pattern sitting still underneath a moving
+ * one. So the texture's job here is reduced to the bed — dark basalt, dark
+ * water — and every bright thing on top of it is the shader's.
+ */
+
+/** Still, black subterranean water. The shader supplies the swell. */
 const WATER: MaterialRecipe = {
   name: 'water',
-  height: (x, y, rnd) => clamp01(0.4 + fbm(x * 5, y * 5, 3, 5, rnd) * 0.6),
-  color: (h) => [0.02 * h, 0.10 + 0.10 * h, 0.16 + 0.16 * h],
+  height: (x, y, rnd) => clamp01(0.42 + fbm(x * 3.4, y * 3.4, 3, 5, rnd) * 0.46),
+  color: (h) => [0.020 + 0.018 * h, 0.082 + 0.080 * h, 0.132 + 0.118 * h],
   roughness: () => 0.06,
-  emissive: (h) => [0, 0.02 * h, 0.04 * h],
+  emissive: () => [0, 0.012, 0.024],
 };
 
-/** Molten rock: dark crust cracked open over glowing veins. */
+/** Molten rock. The crust only; the veins are cut live in the surface shader. */
 const LAVA: MaterialRecipe = {
   name: 'lava',
-  height: (x, y, rnd) => clamp01(cellular(x * 5, y * 5, 5, rnd) * 1.3),
-  color: (h) => {
-    if (h < 0.24) {
-      // Molten: #FF8C00 at the hottest through #FF4500 as it cools.
-      const t = clamp01(h / 0.24);
-      return [1.0, lerp(0.549, 0.271, t), lerp(0.0, 0.0, t)];
-    }
-    // Crust: basalt again, so lava reads as the same rock having melted.
-    const v = clamp01((h - 0.24) / 0.76);
-    return [lerp(0.239, 0.140, v), lerp(0.180, 0.102, v), lerp(0.157, 0.086, v)];
-  },
-  // Near-mirror where it is molten, per the brief's 0.1-0.2.
-  roughness: (h) => (h < 0.24 ? lerp(0.10, 0.20, h / 0.24) : lerp(0.6, 0.9, h)),
-  emissive: (h) => {
-    // A hard step, not a falloff: crust is dark and the gaps between the plates
-    // are molten, with nothing in between. Posterised, the old smooth ramp broke
-    // into concentric rings and read as a sponge.
-    if (h > 0.26) return [0.03, 0.006, 0];
-    const t = clamp01((0.26 - h) / 0.26);
-    // Held under the clipping point on the red channel, so molten rock reads as
-    // orange with shape in it rather than as a white-hot dotted sponge.
-    return [0.85 + t * 0.7, 0.30 + t * 0.30, 0.03 + t * 0.04];
-  },
+  height: (x, y, rnd) => clamp01(0.34 + fbm(x * 3.2, y * 3.2, 4, 7, rnd) * 0.62),
+  // Basalt, so lava reads as the same rock the walls are made of, having melted.
+  color: (h) => [0.086 + 0.062 * h, 0.058 + 0.042 * h, 0.054 + 0.036 * h],
+  roughness: (h) => lerp(0.62, 0.9, h),
+  // A trace of heat left in the deepest hollows, which the wave then lights.
+  emissive: (h) => [0.09 * (1 - h), 0.022 * (1 - h), 0],
 };
 
 /* ------------------------------------------------------------- atlases --- */

@@ -14,6 +14,12 @@ import { makeGlowTexture, makePuffTexture } from './textures';
  * points and only the handful nearest the camera are promoted to actual
  * PointLights — the rest are convincing at a distance because a dungeon is dark
  * and the eye is looking at the bright thing anyway.
+ *
+ * Lava is not in here any more. It used to get a glow sprite on every molten
+ * tile, which was a grid of hard-edged pale discs laid over the lake — and once
+ * the surface shader started cutting real molten veins into it, the discs were
+ * covering up the only thing worth looking at. Lava lights itself now: the veins
+ * are emissive, so they bloom, and LavaGlow gives each *lake* a point light.
  */
 
 /**
@@ -36,8 +42,6 @@ interface TorchSite {
   color: number;
   /** Phase offset so flames don't flicker in lockstep. */
   phase: number;
-  /** Lava pools burn steadier and wider than a wall torch. */
-  isLava: boolean;
 }
 
 export class TorchSystem {
@@ -99,11 +103,6 @@ export class TorchSystem {
         if ((map.flags[i] & FLAG_REVEALED) === 0) continue;
         const terrain = map.terrain[i] as Terrain;
 
-        if (terrain === Terrain.Lava) {
-          sites.push({ x, y, z: 0.05, color: 0xff5a1e, phase: (x * 7 + y * 13) % 10, isLava: true });
-          continue;
-        }
-
         // A torch hangs on any wall facing floor a keeper has claimed. It is
         // the claim that lights the corridor, not the masonry — which is why
         // your starting dungeon glows before a single wall is reinforced.
@@ -126,7 +125,6 @@ export class TorchSystem {
             z: WALL_HEIGHT * 0.72,
             color: OWNER_COLORS[owner],
             phase: (x * 7 + y * 13) % 10,
-            isLava: false,
           });
           break;
         }
@@ -166,14 +164,12 @@ export class TorchSystem {
     for (let i = 0; i < n; i++) {
       const s = this.sites[i];
       // Two out-of-phase sines plus a fast tremor: reads as a live flame.
-      const f = s.isLava
-        ? 0.75 + 0.16 * Math.sin(time * 1.4 + s.phase) + 0.08 * Math.sin(time * 3.7 + s.phase * 2)
-        : 0.68 + 0.22 * Math.sin(time * 6.1 + s.phase)
-          + 0.12 * Math.sin(time * 17.3 + s.phase * 3);
+      const f = 0.68 + 0.22 * Math.sin(time * 6.1 + s.phase)
+        + 0.12 * Math.sin(time * 17.3 + s.phase * 3);
       // Fire is fire: start from a warm flame and let the keeper's banner
       // colour only tint it. Driving straight off the banner hue made every
       // corridor blood red rather than firelit.
-      c.setHex(s.isLava ? 0xff7a2a : 0xffb45a)
+      c.setHex(0xffb45a)
         .lerp(TORCH_TINT.setHex(s.color), 0.22)
         .multiplyScalar(f * 1.35);
       this.colors[i * 3] = c.r;
@@ -204,8 +200,8 @@ export class TorchSystem {
       );
       // Fade out with distance so lights swapping in and out doesn't pop.
       const fade = THREE.MathUtils.clamp(1 - entry.d / 420, 0, 1);
-      light.intensity = (s.isLava ? 11 : 15) * fade;
-      light.distance = s.isLava ? 11 : 10.5;
+      light.intensity = 15 * fade;
+      light.distance = 10.5;
     }
   }
 
