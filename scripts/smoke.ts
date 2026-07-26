@@ -563,6 +563,60 @@ function fingerprint(seed: number): string {
 check('the same seed replays exactly', fingerprint(4242) === fingerprint(4242));
 check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
 
+/* -- creature models ----------------------------------------------------- */
+
+/*
+ * The models are built from primitives with hand-placed offsets, and the one
+ * thing that cannot be seen while placing them is where the floor is: a limb
+ * hangs from `limbOffset.y`, so a limb longer than its own attachment height
+ * stands *through* the ground. Every walker in the roster had that wrong, by up
+ * to 30 cm on a 1 m creature, and it survived a dozen screenshots because feet
+ * are the last thing you look at. It is arithmetic, so it belongs in a test.
+ *
+ * `src/render` is normally off limits here — this whole suite exists because the
+ * simulation has no DOM dependency — but the model builders are pure geometry and
+ * import nothing but three, so they run in Node like anything else.
+ */
+{
+  const models = await import('../src/render/creatureModels');
+  let worstGap = 0;
+  let worstName = '';
+  let heaviest = 0;
+  let heaviestName = '';
+
+  for (const spec of Object.values(CREATURE_SPECS)) {
+    const model = models.getCreatureModel(spec.type, spec.color, spec.accent);
+    model.limb.computeBoundingBox();
+    model.body.computeBoundingBox();
+    const limbBox = model.limb.boundingBox!;
+    const bodyBox = model.body.boundingBox!;
+
+    // Flyers hover, so their limbs are wings and the floor does not apply.
+    if (!model.flapping) {
+      const gap = model.limbOffset.y + limbBox.min.y;
+      if (Math.abs(gap) > Math.abs(worstGap)) { worstGap = gap; worstName = spec.name; }
+    }
+    // The body itself must stand on the floor, not float above it or sink in.
+    check(`${spec.name} stands on the ground`,
+      bodyBox.min.y > -0.06 && bodyBox.min.y < 0.34, Number(bodyBox.min.y.toFixed(3)));
+    check(`${spec.name} is roughly as tall as it claims`,
+      Math.abs(bodyBox.max.y - model.height) < model.height * 0.2,
+      { box: Number(bodyBox.max.y.toFixed(2)), height: model.height });
+
+    const verts = model.body.attributes.position.count
+      + model.limb.attributes.position.count * models.limbCountFor(spec.type)
+      + model.eyes.attributes.position.count;
+    if (verts > heaviest) { heaviest = verts; heaviestName = spec.name; }
+  }
+
+  check('every walker\'s feet reach the floor', Math.abs(worstGap) < 0.06,
+    { worst: worstName, gap: Number(worstGap.toFixed(3)) });
+  // A budget, not a limit for its own sake: geometry is instanced, so this is
+  // vertex transform per creature on screen. Twenty thousand is a phone's worth.
+  check('no species blows the vertex budget', heaviest < 20000,
+    { heaviest: heaviestName, verts: heaviest });
+}
+
 /* -- performance --------------------------------------------------------- */
 
 const t0 = performance.now();

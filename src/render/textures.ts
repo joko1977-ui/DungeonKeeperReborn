@@ -241,8 +241,15 @@ const FLAGSTONE: MaterialRecipe = {
   },
   roughness: (h) => lerp(0.90, 0.72, h),
   emissive: (_h, x, y) => {
+    // Cracks with something molten behind them, not a lit floor.
+    //
+    // At 1.5 this was the brightest thing in the frame and there is more claimed
+    // floor than anything else, so it bloomed into a flat orange wash over the
+    // whole dungeon: the creatures standing on it lost their own colour, and the
+    // rooms lost the furniture that tells them apart. A floor is where the light
+    // lands, not where it comes from.
     const glow = crackGlow(x, y, makeRandom(FLAGSTONE_SEED));
-    return [glow * 1.5, glow * 0.45, glow * 0.04];
+    return [glow * 0.55, glow * 0.17, glow * 0.015];
   },
 };
 

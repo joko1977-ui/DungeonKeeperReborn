@@ -225,7 +225,11 @@ function buildCarapace(rank: Rank, rig: BodyRig): THREE.BufferGeometry {
   const i = rank - 1;
   const metal = IRON[i], trim = TRIM[i];
   const { top, half, depth } = rig;
-  const build = Math.min(half, top * 0.55);
+  // Tighter against height than it looks like it needs to be, for the same reason
+  // the crown is: the widest creature in the roster is wider than it is tall, and
+  // a collar scaled off its half-width came out as a hoop standing clear of the
+  // body on both sides. Kit has to look strapped to a shoulder, not hung on a peg.
+  const build = Math.min(half, top * 0.42);
   const unit = Math.min(build * 0.75, top * 0.3);
   const backY = top * 0.78;
 

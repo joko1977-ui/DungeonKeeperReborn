@@ -299,10 +299,20 @@ declare global {
       narrator: Narrator;
       director: AudioDirector;
       spawn?: (type: CreatureType, x: number, y: number) => Creature;
+      /** The renderers, so a harness can hide the dungeon and look at one thing. */
+      groups?: Record<string, THREE.Object3D>;
     };
   }
 }
 window.dk = { game, camera, rig, audio, narrator, director };
+// Named so the model harness can strip the scene back to a plain backdrop.
+// Judging a creature against a wall of glowing lava is judging the lava.
+window.dk.groups = {
+  terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
+  landmarks: landmarks.group, atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
+  torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
+  hand: hand.group,
+};
 // Spawn helper, used by the creature-model screenshot harness and handy for
 // poking at behaviour from the console.
 window.dk.spawn = (type: CreatureType, x: number, y: number) => {
