@@ -796,6 +796,54 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
+/* -- an improved building is different masonry, not bigger masonry --------- */
+
+{
+  const { buildKerb, buildCapital, buildBrazier } = await import('../src/render/roomShell');
+  const kerbs = [1, 2, 3].map((l) => buildKerb(l));
+  const verts = kerbs.map((g) => g.attributes.position.count);
+
+  /*
+   * Each level has to be its own shape.
+   *
+   * The first version scaled one kerb, and a bigger version of the same lip
+   * reads as "the room got bigger" — which is the one thing it must not say,
+   * because size and investment are separate axes and the player is spending
+   * gold on the second. Different vertex counts are a blunt proxy for different
+   * masonry, but they do catch the failure that matters: somebody quietly going
+   * back to one geometry.
+   */
+  check('every room level has its own stonework',
+    new Set(verts).size === 3, { verts });
+  check('and the better ones have more in them',
+    verts[1] > verts[0] && verts[2] > verts[1], { verts });
+
+  for (const [name, geo] of [['level 1', kerbs[0]], ['level 2', kerbs[1]], ['level 3', kerbs[2]]] as const) {
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!;
+    // A kerb runs along one edge of its own tile and must not stray onto the
+    // neighbour's, or two rooms meeting would grow through each other.
+    check(`a ${name} kerb keeps to its own edge`,
+      box.min.y > -0.01 && Math.max(-box.min.x, box.max.x) <= 0.51,
+      { y: Number(box.min.y.toFixed(3)), x: Number(Math.max(-box.min.x, box.max.x).toFixed(3)) });
+  }
+
+  kerbs[2].computeBoundingBox();
+  kerbs[0].computeBoundingBox();
+  check('the top level stands markedly taller than the first',
+    kerbs[2].boundingBox!.max.y > kerbs[0].boundingBox!.max.y * 2.5,
+    { first: Number(kerbs[0].boundingBox!.max.y.toFixed(3)),
+      top: Number(kerbs[2].boundingBox!.max.y.toFixed(3)) });
+
+  const caps = [2, 3].map((l) => buildCapital(l));
+  check('the columns gain a course at each level',
+    caps[1].attributes.position.count > caps[0].attributes.position.count);
+  const brazier = buildBrazier();
+  brazier.computeBoundingBox();
+  check('and the top level burns a fire that stands off the post',
+    brazier.boundingBox!.max.y > 0.6, Number(brazier.boundingBox!.max.y.toFixed(2)));
+}
+
 /* -- buildings can be improved -------------------------------------------- */
 
 {

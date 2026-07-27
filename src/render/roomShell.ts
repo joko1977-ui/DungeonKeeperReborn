@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Owner, RoomType, Terrain } from '../core/constants';
+import { Owner, ROOM_MAX_LEVEL, RoomType, Terrain } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
 import { celRamp } from './celRamp';
@@ -62,17 +62,115 @@ const KERB_COLOUR: Partial<Record<RoomType, number>> = {
 /**
  * A kerb along the -Z edge of a tile, to be rotated into place.
  *
- * Chamfered rather than a plain bar: a rectangular block lit from above shows
- * one flat top and nothing else, where a chamfer gives a lit upper face and a
- * shadowed skirt and therefore an edge you can see. The whole reason for this
- * thing is that it should be visible from directly overhead.
+ * One of these per level, and they are different *masonry* rather than the same
+ * masonry scaled. Scaling was what the first attempt did, and a bigger version
+ * of the same lip reads as "the room got bigger", which is the one message it
+ * must not send — size and investment are separate axes and the player is
+ * spending gold on the second. So the courses change:
+ *
+ *   1  a plain chamfered lip: a threshold, and no more,
+ *   2  a moulded kerb — a plinth, a step and a bead, the profile of something
+ *      somebody detailed rather than poured,
+ *   3  a parapet with balusters, standing knee high with a rail across the top.
+ *
+ * The third is deliberately the one with a visible *void* in it. Solid mass just
+ * looks heavy; a rail with gaps under it looks built to enclose something, which
+ * is what a room the player has poured gold into ought to look like.
  */
-function buildKerb(): THREE.BufferGeometry {
+export function buildKerb(level: number): THREE.BufferGeometry {
   const b = new PartBuilder();
   const stone = 0xffffff;
-  // Skirt, then a narrower cap: two boxes make the chamfer in silhouette.
-  b.box(1.0, KERB_HEIGHT * 0.7, 0.17, 0, KERB_HEIGHT * 0.35, -0.44, stone);
-  b.box(1.0, KERB_HEIGHT * 0.42, 0.12, 0, KERB_HEIGHT * 0.86, -0.44, stone);
+  const shade = 0xc2c2c2;
+  const z = -0.44;
+
+  if (level <= 1) {
+    b.box(1.0, KERB_HEIGHT * 0.7, 0.17, 0, KERB_HEIGHT * 0.35, z, stone);
+    b.box(1.0, KERB_HEIGHT * 0.42, 0.12, 0, KERB_HEIGHT * 0.86, z, stone);
+    return b.build();
+  }
+
+  if (level === 2) {
+    // Plinth, step, bead: three courses instead of two, each set back from the
+    // one below, which is the whole of what a moulding is.
+    b.box(1.0, KERB_HEIGHT * 0.5, 0.21, 0, KERB_HEIGHT * 0.25, z, shade);
+    b.box(1.0, KERB_HEIGHT * 0.55, 0.155, 0, KERB_HEIGHT * 0.78, z, stone);
+    b.box(1.0, KERB_HEIGHT * 0.28, 0.10, 0, KERB_HEIGHT * 1.18, z, stone);
+    // A bead running the length of it, catching a highlight along the top edge.
+    b.cylinder(0.030, 0.030, 1.0, 0, KERB_HEIGHT * 1.34, z, stone, 0, 0, Math.PI / 2, 6);
+    return b.build();
+  }
+
+  /*
+   * Level three: a parapet, and a tall one.
+   *
+   * The first cut of this stood about a quarter of a tile high, which is a kerb
+   * with pretensions — from the playing camera it was indistinguishable from the
+   * moulded course below it. A wall that encloses has to be tall enough to read
+   * as a wall, so it goes to roughly two thirds the height of the rock around it
+   * and the balusters carry most of that: the void between them is what says
+   * "wall" rather than "step".
+   */
+  b.box(1.0, KERB_HEIGHT * 0.62, 0.28, 0, KERB_HEIGHT * 0.31, z, shade);
+  for (let i = 0; i < 4; i++) {
+    const x = -0.375 + i * 0.25;
+    b.cylinder(0.044, 0.062, KERB_HEIGHT * 2.30, x, KERB_HEIGHT * 1.80, z, stone, 0, 0, 0, 6);
+  }
+  b.box(1.0, KERB_HEIGHT * 0.40, 0.22, 0, KERB_HEIGHT * 3.15, z, stone);
+  b.box(1.0, KERB_HEIGHT * 0.22, 0.27, 0, KERB_HEIGHT * 3.46, z, shade);
+  return b.build();
+}
+
+/**
+ * The extra course a post gains per level, dropped over its shaft.
+ *
+ * Shared across every room type: it is the *stonework* that improves, and the
+ * finial on top is what says which room it is. Building three variants of eight
+ * posts would be twenty-four meshes to say one thing.
+ */
+export function buildCapital(level: number): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  const stone = 0xa8a094;
+  const dark = 0x6d675c;
+  if (level === 2) {
+    // A banded collar at the neck and a wider foot: it starts to look turned.
+    b.cylinder(0.135, 0.155, 0.075, 0, 0.075, 0, dark, 0, 0, 0, 8);
+    b.cylinder(0.115, 0.115, 0.045, 0, 0.62, 0, stone, 0, 0, 0, 8);
+    return b.build();
+  }
+  // Level three: a fluted drum and a spread capital, the full order.
+  b.cylinder(0.165, 0.190, 0.090, 0, 0.090, 0, dark, 0, 0, 0, 8);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    b.box(0.030, 0.52, 0.030, Math.cos(a) * 0.105, 0.40, Math.sin(a) * 0.105, stone);
+  }
+  b.cylinder(0.150, 0.120, 0.060, 0, 0.70, 0, stone, 0, 0, 0, 8);
+  b.box(0.30, 0.045, 0.30, 0, 0.75, 0, dark);
+  return b.build();
+}
+
+/**
+ * A brazier for the corners of a fully improved room.
+ *
+ * The last level should not only be *smarter*, it should look like it holds
+ * more, and nothing says a room is a place rather than a patch of floor like
+ * standing fire at its corners. It is emissive rather than a real light: eight
+ * corner lights would eat the forward renderer's budget to say one thing.
+ */
+export function buildBrazier(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  const iron = 0x4a443c;
+  b.cylinder(0.070, 0.038, 0.32, 0, 0.16, 0, iron, 0, 0, 0, 6);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    b.box(0.034, 0.26, 0.034, Math.cos(a) * 0.095, 0.13, Math.sin(a) * 0.095, iron,
+      Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
+  }
+  b.cylinder(0.190, 0.110, 0.105, 0, 0.38, 0, iron, 0, 0, 0, 9);
+  // Coals, then flame. Sized to read as lit from the playing camera, which is
+  // twenty tiles up — at the first size it was a spark on a stick.
+  b.sphere(0.135, 0, 0.42, 0, 0xff7a1e, 1, 0.55, 1, 7);
+  b.cone(0.115, 0.40, 0, 0.62, 0, 0xffc247, 0, 0, 0, 7);
+  b.cone(0.062, 0.23, 0, 0.72, 0, 0xfff0b8, 0, 0, 0, 6);
   return b.build();
 }
 
@@ -247,8 +345,14 @@ export class RoomShell {
 
   private readonly map: TileMap;
   private readonly material: THREE.MeshToonMaterial;
-  private readonly kerb: THREE.InstancedMesh;
+  /** One kerb mesh per level: different masonry, not the same masonry scaled. */
+  private readonly kerbs: THREE.InstancedMesh[] = [];
   private readonly posts = new Map<RoomType, THREE.InstancedMesh>();
+  /** The extra course a post gains at level two and three. */
+  private readonly capitals: THREE.InstancedMesh[] = [];
+  /** Corner fire, for rooms taken all the way. */
+  private readonly braziers: THREE.InstancedMesh;
+  private readonly emberMaterial: THREE.MeshBasicMaterial;
   private readonly dummy = new THREE.Object3D();
   private readonly colour = new THREE.Color();
   private lastVersion = -1;
@@ -262,16 +366,39 @@ export class RoomShell {
       gradientMap: celRamp(),
     });
 
-    this.kerb = new THREE.InstancedMesh(buildKerb(), this.material, MAX_KERB);
-    this.kerb.castShadow = true;
-    this.kerb.receiveShadow = true;
-    this.kerb.frustumCulled = false;
-    this.kerb.count = 0;
-    this.kerb.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.kerb.instanceColor =
-      new THREE.InstancedBufferAttribute(new Float32Array(MAX_KERB * 3), 3);
-    this.kerb.instanceColor.setUsage(THREE.DynamicDrawUsage);
-    this.group.add(this.kerb);
+    for (let level = 1; level <= ROOM_MAX_LEVEL; level++) {
+      const mesh = new THREE.InstancedMesh(buildKerb(level), this.material, MAX_KERB);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.instanceColor =
+        new THREE.InstancedBufferAttribute(new Float32Array(MAX_KERB * 3), 3);
+      mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      this.kerbs.push(mesh);
+      this.group.add(mesh);
+    }
+
+    for (const level of [2, 3]) {
+      const mesh = new THREE.InstancedMesh(buildCapital(level), this.material, MAX_POSTS);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      this.capitals.push(mesh);
+      this.group.add(mesh);
+    }
+
+    // Unlit, so the flame stays flame-coloured in a room the torches do not
+    // reach — a brazier that shades to brown is a bucket.
+    this.emberMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+    this.braziers = new THREE.InstancedMesh(buildBrazier(), this.emberMaterial, MAX_POSTS);
+    this.braziers.frustumCulled = false;
+    this.braziers.count = 0;
+    this.braziers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.braziers);
 
     for (const room of SHELLED) {
       const mesh = new THREE.InstancedMesh(buildPost(room), this.material, MAX_POSTS);
@@ -295,7 +422,9 @@ export class RoomShell {
   private rebuild(): void {
     const { map, dummy, colour } = this;
     const { size: sizes } = roomInstances(map);
-    let kerbN = 0;
+    const kerbN = [0, 0, 0];
+    const capitalN = [0, 0];
+    let brazierN = 0;
     const postN = new Map<RoomType, number>();
     for (const room of SHELLED) postN.set(room, 0);
 
@@ -322,16 +451,18 @@ export class RoomShell {
       const level = Math.max(1, map.roomLevel[i]);
       const kerbScale = (1 + grand * 0.55) * (1 + (level - 1) * 0.16);
 
+      const kerbMesh = this.kerbs[level - 1];
       for (let s = 0; s < 4; s++) {
-        if (!outward[s] || kerbN >= MAX_KERB) continue;
+        if (!outward[s] || kerbN[level - 1] >= MAX_KERB) continue;
         dummy.position.set(x, 0, y);
         dummy.rotation.set(0, (s * Math.PI) / 2, 0);
+        // Size still stretches the stonework; the level chose which stonework.
         dummy.scale.set(1, kerbScale, 1 + grand * 0.35);
         dummy.updateMatrix();
-        this.kerb.setMatrixAt(kerbN, dummy.matrix);
+        kerbMesh.setMatrixAt(kerbN[level - 1], dummy.matrix);
         colour.setHex(tint).lerp(GILT, (level - 1) * 0.32);
-        this.kerb.setColorAt(kerbN, colour);
-        kerbN++;
+        kerbMesh.setColorAt(kerbN[level - 1], colour);
+        kerbN[level - 1]++;
       }
 
       /*
@@ -385,13 +516,37 @@ export class RoomShell {
         dummy.updateMatrix();
         mesh.setMatrixAt(at, dummy.matrix);
         postN.set(room, at + 1);
+
+        // The improved courses ride the same matrix as the post they dress.
+        if (level >= 2 && capitalN[level - 2] < MAX_POSTS) {
+          this.capitals[level - 2].setMatrixAt(capitalN[level - 2], dummy.matrix);
+          capitalN[level - 2]++;
+        }
+        // And a fully improved room burns a fire at each of its corners.
+        if (level >= ROOM_MAX_LEVEL && brazierN < MAX_POSTS) {
+          dummy.translateY(0.98);
+          dummy.updateMatrix();
+          this.braziers.setMatrixAt(brazierN, dummy.matrix);
+          brazierN++;
+        }
       }
     }
 
-    this.kerb.count = kerbN;
-    this.kerb.instanceMatrix.needsUpdate = true;
-    if (this.kerb.instanceColor) this.kerb.instanceColor.needsUpdate = true;
-    this.kerb.computeBoundingSphere();
+    for (let k = 0; k < this.kerbs.length; k++) {
+      const mesh = this.kerbs[k];
+      mesh.count = kerbN[k];
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
+    for (let k = 0; k < this.capitals.length; k++) {
+      this.capitals[k].count = capitalN[k];
+      this.capitals[k].instanceMatrix.needsUpdate = true;
+      this.capitals[k].computeBoundingSphere();
+    }
+    this.braziers.count = brazierN;
+    this.braziers.instanceMatrix.needsUpdate = true;
+    this.braziers.computeBoundingSphere();
 
     for (const [room, mesh] of this.posts) {
       mesh.count = postN.get(room) ?? 0;
@@ -406,7 +561,10 @@ export class RoomShell {
   }
 
   dispose(): void {
-    this.kerb.geometry.dispose();
+    for (const m of this.kerbs) m.geometry.dispose();
+    for (const m of this.capitals) m.geometry.dispose();
+    this.braziers.geometry.dispose();
+    this.emberMaterial.dispose();
     for (const mesh of this.posts.values()) mesh.geometry.dispose();
     this.material.dispose();
   }
