@@ -43,11 +43,12 @@ export function showBriefing(
           of the Land comes last, once you have turned back enough of them.
         </p>
         <p>
-          Every direction looks like the same brown rock, so it is worth knowing
-          which way is worth the digging: the coloured wedges laid over the wall
-          tops are your dig plan, marking the blocks that lead to each thing the
-          compass is pointing at, and the hovering crystals mark the seams you
-          have found. Press <b>V</b> if you would rather prospect blind.
+          Every direction looks like the same brown rock, so when you cannot tell
+          which way is worth the digging, press <b>V</b> for the dig plan: coloured
+          wedges over the wall tops marking the blocks that lead to each thing the
+          compass points at, marks on the stone for the seams you have found, and
+          arrows following your imps to wherever they are working. It stays off
+          until you ask for it, and it remembers which you prefer.
         </p>
         ${briefingObjectives(objectives)}`}
       <h3 class="brief-heading">Reading the dungeon</h3>
@@ -70,7 +71,7 @@ export function showBriefing(
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>
         <dt>R / F / T / C</dt><dd>Rooms, spells, workshop and creature tabs &nbsp;·&nbsp; <b>1–9</b> picks from the open tab</dd>
         <dt>Space</dt><dd>Pause &nbsp;·&nbsp; <b>Esc</b> puts down whatever tool you picked up</dd>
-        <dt>V</dt><dd>Show or hide the dig plan &nbsp;·&nbsp; also the <b>Dig plan</b> button, top right</dd>
+        <dt>V</dt><dd>Show or hide the dig plan — off by default, and it remembers &nbsp;·&nbsp; also the <b>Dig plan</b> button, top right</dd>
         <dt>One finger</dt><dd>Tap or drag to tag walls · tap a creature to pick it up · hold to slap</dd>
         <dt>Two fingers</dt><dd>Drag to move · pinch to zoom · twist to rotate</dd>
         <dt>Sound</dt><dd>Toggle the mix and the narrator from the top right</dd>

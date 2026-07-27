@@ -179,15 +179,30 @@ helpButton.addEventListener('click', () => showBriefing(uiRoot!, () => {
 }, true));
 
 /*
- * The dig plan is on by default.
+ * The dig plan is off unless the player asks for it, and the choice sticks.
  *
- * Every instinct says an overlay should start hidden and be opted into. That is
- * wrong here: the thing it fixes is a player looking at two hundred identical
- * blocks with no idea which one to tag, and a player in that position does not
- * know there is a button that would tell them. A feature that answers the
- * opening question of the game has to be visible when the game opens. It is one
- * key and one button away from off for anyone who would rather prospect blind.
+ * It went in on by default, on the argument that a player who cannot tell one
+ * block from another does not know there is a button that would tell them. That
+ * is a real problem, but it is the smaller one: the markers sit on the rock you
+ * are trying to look at, and a plan you did not ask for covering the dungeon you
+ * did is worse than a plan you have to find. So it is a setting now — remembered
+ * across sessions like the sound is, because a preference you have to re-set
+ * every time you open the game is not a preference, it is a nuisance.
+ *
+ * Discoverability is handled where it belongs instead: the briefing names the
+ * key, and the button sits in the top strip saying what it does.
  */
+const SURVEY_KEY = 'dk-dig-plan';
+
+function loadSurveyPreference(): boolean {
+  try {
+    return localStorage.getItem(SURVEY_KEY) === 'on';
+  } catch {
+    // Private browsing and the like: default to the quieter dungeon.
+    return false;
+  }
+}
+
 function setSurvey(on: boolean): void {
   survey.setEnabled(on);
   // The imps' traffic rides the same switch. It answers the other half of the
@@ -195,9 +210,14 @@ function setSurvey(on: boolean): void {
   impFlow.setEnabled(on);
   surveyButton.classList.toggle('is-off', !on);
   surveyButton.textContent = on ? 'Dig plan' : 'Dig plan off';
+  try {
+    localStorage.setItem(SURVEY_KEY, on ? 'on' : 'off');
+  } catch {
+    // Not being able to remember the choice is not worth an error.
+  }
 }
 surveyButton.addEventListener('click', () => setSurvey(!survey.enabled));
-setSurvey(true);
+setSurvey(loadSurveyPreference());
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
