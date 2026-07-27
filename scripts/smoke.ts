@@ -670,6 +670,72 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     { heaviest: heaviestName, verts: heaviest });
 }
 
+/* -- creatures are individuals -------------------------------------------- */
+
+{
+  const { blinkScale } = await import('../src/render/creatureRenderer');
+  const { badgeFor, BADGE_NONE, BADGE_DIG, BADGE_GOLD, BADGE_HUNGRY, BADGE_ANGRY, BADGE_SLEEP } =
+    await import('../src/render/badges');
+
+  // Blinking: open nearly all the time, fully shut briefly, and never in step.
+  const sample = (seed: number) => {
+    const vals: number[] = [];
+    for (let t = 0; t < 12; t += 1 / 60) vals.push(blinkScale(t, seed, CreatureState.Idle));
+    return vals;
+  };
+  const a = sample(0.11);
+  const openFraction = a.filter((v) => v > 0.99).length / a.length;
+  check('an eye is open almost all the time', openFraction > 0.9,
+    { open: Number(openFraction.toFixed(3)) });
+  check('but it does shut', Math.min(...a) < 0.12, Number(Math.min(...a).toFixed(3)));
+  check('and it never inverts or overshoots', a.every((v) => v >= 0 && v <= 1));
+
+  // Two creatures must not blink together, or a crowd reads as one animation.
+  const b = sample(0.73);
+  let together = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] < 0.5 && b[i] < 0.5) together++;
+  check('two creatures do not blink in unison', together === 0, { together });
+
+  // Glancing: bounded, and mostly still — a head that never stopped moving
+  // would be scanning the horizon like a lighthouse.
+  const { glanceOffset } = await import('../src/render/creatureRenderer');
+  const look: number[] = [];
+  for (let t = 0; t < 20; t += 1 / 60) look.push(glanceOffset(t, 0.37));
+  check('a glance stays within a head-turn', look.every((v) => Math.abs(v) <= 0.56),
+    Number(Math.max(...look.map(Math.abs)).toFixed(3)));
+  let moved = 0;
+  for (let i = 1; i < look.length; i++) if (Math.abs(look[i] - look[i - 1]) > 1e-4) moved++;
+  check('and it holds still between glances', moved / look.length < 0.35,
+    { movingFraction: Number((moved / look.length).toFixed(3)) });
+  check('two creatures look about independently',
+    glanceOffset(4.1, 0.2) !== glanceOffset(4.1, 0.8));
+
+  check('a sleeping creature keeps its eyes shut',
+    blinkScale(1.7, 0.4, CreatureState.Sleeping) < 0.1);
+
+  // Badges: needs outrank jobs, and idle says nothing.
+  const imp = createCreature(CreatureType.Imp, Owner.Player, 5, 5);
+  imp.state = CreatureState.Digging;
+  check('a digging imp wears the pick', badgeFor(imp) === BADGE_DIG);
+  imp.state = CreatureState.Hauling;
+  check('a hauling imp wears the coin', badgeFor(imp) === BADGE_GOLD);
+  imp.state = CreatureState.Walking;
+  check('walking with a load still says gold',
+    (imp.goldHeld = 300, badgeFor(imp)) === BADGE_GOLD);
+  imp.goldHeld = 0;
+  check('walking empty-handed says nothing', badgeFor(imp) === BADGE_NONE);
+  imp.state = CreatureState.Idle;
+  check('an idle creature says nothing', badgeFor(imp) === BADGE_NONE);
+  imp.state = CreatureState.Sleeping;
+  check('a sleeper says so', badgeFor(imp) === BADGE_SLEEP);
+  imp.state = CreatureState.Digging;
+  imp.hunger = 95;
+  check('starving outranks the job in hand', badgeFor(imp) === BADGE_HUNGRY);
+  imp.hunger = 0;
+  imp.anger = 90;
+  check('fury outranks the job in hand', badgeFor(imp) === BADGE_ANGRY);
+}
+
 /* -- the dig plan -------------------------------------------------------- */
 
 {

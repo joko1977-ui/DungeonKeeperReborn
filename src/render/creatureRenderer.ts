@@ -14,8 +14,57 @@ import {
 import { makeGlowTexture } from './textures';
 
 import { PartBuilder } from './creatureModels';
+import { BADGE_COLS, BADGE_NONE, BADGE_ROWS, badgeAtlas, badgeFor } from './badges';
 import { addRimLight, celRamp } from './celRamp';
 import { Gait, angleDelta, gaitFor, strike } from './gait';
+
+/**
+ * How open a creature's eyes are, in [0,1].
+ *
+ * Blinks are rare, fast and irregular. A steady sine would be a creature slowly
+ * winking at you forever; what a blink actually is, is a long open interval and
+ * then a shut lasting a tenth of a second. The seed spreads the phase so a
+ * roomful never blinks together, and staggers the interval so they never fall
+ * into step either.
+ */
+export function blinkScale(time: number, seed: number, state: CreatureState): number {
+  // Asleep the eyes are simply shut, and a corpse does not blink.
+  if (state === CreatureState.Sleeping) return 0.06;
+  if (state === CreatureState.Dying) return 1;
+  const period = 3.4 + seed * 2.8;
+  const t = (time + seed * 17) % period;
+  const shut = 0.13;
+  if (t > shut) return 1;
+  // Down and back up inside the shut window, easing at neither end: a blink is
+  // a snap, not a fade.
+  return Math.abs(t / shut - 0.5) * 2 * 0.94 + 0.06;
+}
+
+/**
+ * Where an idle creature is looking.
+ *
+ * Standing still, they stared dead ahead forever. Real attention does not work
+ * like that and neither does animated attention: a head snaps to something,
+ * holds on it for a second or two, then snaps somewhere else. A smooth sine
+ * would have produced a creature slowly scanning the horizon like a lighthouse,
+ * which is a different and worse kind of wrong.
+ *
+ * So: a deterministic target per interval, crossed to quickly and then held.
+ * Returns a yaw offset in radians, roughly plus or minus half a radian.
+ */
+export function glanceOffset(time: number, seed: number): number {
+  const period = 2.8 + seed * 2.2;
+  const phase = time / period + seed * 13;
+  const k = Math.floor(phase);
+  const pick = (n: number): number => {
+    const r = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453;
+    return (r - Math.floor(r) - 0.5) * 1.1;
+  };
+  // Across in the first fifth of the interval, then still for the rest of it.
+  const t = Math.min(1, (phase - k) / 0.2);
+  const ease = t * t * (3 - 2 * t);
+  return pick(k - 1) + (pick(k) - pick(k - 1)) * ease;
+}
 
 /** A bulging sack with coins spilling over the tie. */
 function buildGoldSack(): THREE.BufferGeometry {
@@ -40,6 +89,40 @@ function buildGoldSack(): THREE.BufferGeometry {
 
 const MAX_PER_TYPE = 220;
 
+/** Badges drawn at once, across every species. */
+const MAX_BADGES = 260;
+
+/** How far above a creature's own height its badge floats. */
+const BADGE_LIFT = 0.34;
+
+/** World size of a badge. Big enough to read from the default camera. */
+const BADGE_SIZE = 0.46;
+
+/**
+ * Point a badge quad at its own cell of the sheet.
+ *
+ * The same per-instance atlas trick the terrain uses: one texture, one draw
+ * call, and the instance decides which glyph it is wearing.
+ */
+function applyBadgeAtlas(material: THREE.Material): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+         attribute float aBadge;`)
+      .replace('#include <uv_vertex>', `#include <uv_vertex>
+         #ifdef USE_MAP
+           // The sheet is a canvas and three flips canvases on upload, so the
+           // row index counts from the bottom of the texture, not the top.
+           vec2 badgeCell = vec2(
+             mod( aBadge, ${BADGE_COLS}.0 ),
+             ${BADGE_ROWS}.0 - 1.0 - floor( aBadge / ${BADGE_COLS}.0 )
+           );
+           vMapUv = ( uv + badgeCell ) / vec2( ${BADGE_COLS}.0, ${BADGE_ROWS}.0 );
+         #endif`);
+  };
+  material.customProgramCacheKey = () => 'badge-atlas';
+}
+
 interface TypeBatch {
   body: THREE.InstancedMesh;
   limb: THREE.InstancedMesh;
@@ -52,6 +135,8 @@ interface TypeBatch {
    * than a tint, and it costs one draw call per rank per species.
    */
   regalia: Map<Rank, THREE.InstancedMesh>;
+  /** Height of the eyes in model space, so a blink pivots on them. */
+  eyeY: number;
   /** Champions only: a slow ring of light at the feet. */
   aura: THREE.InstancedMesh;
   /**
@@ -95,11 +180,26 @@ export class CreatureRenderer {
   private readonly limbDummy = new THREE.Object3D();
   /** Scratch for copying a body matrix onto its rank kit. */
   private readonly matrix = new THREE.Matrix4();
+  private readonly eyeLid = new THREE.Matrix4();
+  private readonly eyeScale = new THREE.Vector3();
   private readonly color = new THREE.Color();
   private readonly tmpColor = new THREE.Color();
 
   /** Maps a body instance back to a creature, for click picking. */
   private readonly pickTable = new Map<THREE.InstancedMesh, Creature[]>();
+
+  /**
+   * Job badges, for the whole roster in one mesh rather than one per species.
+   *
+   * They are the same quad wearing a different cell of the same sheet whatever
+   * is underneath them, so splitting them by species would buy nothing and cost
+   * a draw call each.
+   */
+  private readonly badgeMesh: THREE.InstancedMesh;
+  private readonly badgeMaterial: THREE.MeshBasicMaterial;
+  private readonly badgeSlotAttr: THREE.InstancedBufferAttribute;
+  /** Camera orientation, so badges face the viewer. */
+  private readonly billboard = new THREE.Quaternion();
 
   constructor() {
     this.celRamp = celRamp();
@@ -166,6 +266,34 @@ export class CreatureRenderer {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
+
+    /*
+     * The badge quad.
+     *
+     * Depth-tested, so a badge is hidden by the rock in front of it rather than
+     * floating through a wall and reporting on a creature you cannot see — the
+     * fog of war is a rule, and an overlay that quietly breaks it is worse than
+     * no overlay. Unlit and un-tonemapped, because it is a label.
+     */
+    this.badgeMaterial = new THREE.MeshBasicMaterial({
+      map: badgeAtlas(),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const badgeGeo = new THREE.PlaneGeometry(1, 1);
+    this.badgeSlotAttr =
+      new THREE.InstancedBufferAttribute(new Float32Array(MAX_BADGES), 1);
+    this.badgeSlotAttr.setUsage(THREE.DynamicDrawUsage);
+    badgeGeo.setAttribute('aBadge', this.badgeSlotAttr);
+    applyBadgeAtlas(this.badgeMaterial);
+    this.badgeMesh = new THREE.InstancedMesh(badgeGeo, this.badgeMaterial, MAX_BADGES);
+    this.badgeMesh.frustumCulled = false;
+    this.badgeMesh.count = 0;
+    this.badgeMesh.renderOrder = 6;
+    this.badgeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.badgeMesh);
   }
 
   private batchFor(type: CreatureType): TypeBatch {
@@ -247,8 +375,14 @@ export class CreatureRenderer {
       new THREE.InstancedBufferAttribute(new Float32Array(MAX_PER_TYPE * 3), 3);
     aura.instanceColor.setUsage(THREE.DynamicDrawUsage);
 
+    // Where the eyes actually sit on this species, so the blink closes about
+    // them instead of dragging the whole head down toward the feet.
+    model.eyes.computeBoundingBox();
+    const eyeBox = model.eyes.boundingBox;
+    const eyeY = eyeBox ? (eyeBox.min.y + eyeBox.max.y) / 2 : model.height * 0.8;
+
     batch = {
-      body, limb, eyes, ring, shadow, regalia, aura, sack, limbsPer,
+      body, limb, eyes, ring, shadow, regalia, aura, sack, limbsPer, eyeY,
       flapping: model.flapping,
       limbOffset: model.limbOffset,
       height: model.height,
@@ -263,7 +397,11 @@ export class CreatureRenderer {
    * Rebuild every instance from the live creature list.
    * `time` drives idle motion; `dt` advances each creature's own gait phase.
    */
-  update(creatures: readonly Creature[], time: number, dt: number): void {
+  update(
+    creatures: readonly Creature[], time: number, dt: number, camera?: THREE.Camera,
+  ): void {
+    if (camera) camera.getWorldQuaternion(this.billboard);
+    let badgeN = 0;
     // Bucket by species so each batch fills contiguously.
     const byType = new Map<CreatureType, Creature[]>();
     for (const c of creatures) {
@@ -325,6 +463,33 @@ export class CreatureRenderer {
           batch.sack.setMatrixAt(sackN++, this.matrix);
         }
 
+        /*
+         * The badge, if this one has anything to say.
+         *
+         * Only the player's own creatures. Doubling the count to report on the
+         * enemy's intentions as well would halve the legibility of the question
+         * actually being asked, which is "what are *mine* doing" — and the enemy
+         * telling you his plans is a different feature with different rules.
+         */
+        if (c.owner === Owner.Player && badgeN < MAX_BADGES
+          && c.state !== CreatureState.Dying) {
+          const slot = badgeFor(c);
+          if (slot !== BADGE_NONE) {
+            const lift = batch.height * CREATURE_SPECS[c.type].scale * rankScale(c.level);
+            this.dummy.position.set(
+              c.x,
+              c.z + lift + BADGE_LIFT + Math.sin(time * 2.1 + c.seed * 9) * 0.03,
+              c.y,
+            );
+            this.dummy.quaternion.copy(this.billboard);
+            this.dummy.scale.setScalar(BADGE_SIZE);
+            this.dummy.updateMatrix();
+            this.badgeMesh.setMatrixAt(badgeN, this.dummy.matrix);
+            this.badgeSlotAttr.setX(badgeN, slot);
+            badgeN++;
+          }
+        }
+
         const glow = auraStrength(c, time);
         if (glow > 0 && c.state !== CreatureState.Dying) {
           const size = CREATURE_SPECS[c.type].scale * rankScale(c.level) * 2.3;
@@ -380,6 +545,12 @@ export class CreatureRenderer {
       if (batch.ring.instanceColor) batch.ring.instanceColor.needsUpdate = true;
       if (batch.eyes.instanceColor) batch.eyes.instanceColor.needsUpdate = true;
     }
+
+    this.badgeMesh.count = badgeN;
+    if (badgeN > 0) {
+      this.badgeMesh.instanceMatrix.needsUpdate = true;
+      this.badgeSlotAttr.needsUpdate = true;
+    }
   }
 
   /** Position, orient and animate one creature's body, eyes and marker ring. */
@@ -400,7 +571,18 @@ export class CreatureRenderer {
       || (c.state === CreatureState.Fighting && c.path !== null);
     c.animPhase += dt * (moving ? spec.speed * gait.cadence : 1.6);
 
-    const scale = spec.scale * rankScale(c.level);
+    /*
+     * No two of them the same size.
+     *
+     * A dozen imps at identical scale in identical colour read as one imp drawn
+     * a dozen times, which is most of why the roster looked like objects rather
+     * than like a workforce. The variation is deterministic in the creature's
+     * own seed, so an imp is the same imp for its whole life — it is a trait, not
+     * a flicker — and it is small enough that nobody thinks the species is
+     * inconsistent, only that these are different individuals of it.
+     */
+    const build = 0.90 + c.seed * 0.20;
+    const scale = spec.scale * rankScale(c.level) * build;
     let y = c.z;
     let lean = 0;
     let roll = 0;
@@ -496,13 +678,37 @@ export class CreatureRenderer {
      * the small thing that stops a creature reading as a rigid puppet.
      */
     const anticipate = angleDelta(yaw, Math.PI / 2 - c.facing) * 0.45;
-    dummy.rotation.set(lean, yaw + anticipate, roll, 'YXZ');
+    // Standing about, it looks around; working, it looks at the work.
+    const looking = c.state === CreatureState.Idle ? glanceOffset(time, c.seed) : 0;
+    dummy.rotation.set(lean, yaw + anticipate + looking, roll, 'YXZ');
     dummy.updateMatrix();
+
+    /*
+     * Blinking.
+     *
+     * The cheapest signal of life there is, and its absence is the loudest: a
+     * face whose eyes never close is a mask, and every creature in the dungeon
+     * was wearing one. Each blinks on its own clock, seeded so a crowd never
+     * does it in unison, and the lids shut about the eyes themselves rather than
+     * the eyes scaling toward the floor — done the wrong way it reads as the
+     * head shrinking, which is worse than not blinking at all.
+     */
+    const blink = blinkScale(time, c.seed, c.state);
+    if (blink < 1) {
+      this.eyeLid.makeTranslation(0, batch.eyeY, 0);
+      this.eyeLid.scale(this.eyeScale.set(1, blink, 1));
+      this.eyeLid.multiply(this.matrix.makeTranslation(0, -batch.eyeY, 0));
+      dummy.matrix.multiply(this.eyeLid);
+    }
     batch.eyes.setMatrixAt(n, dummy.matrix);
 
     // Wounded creatures darken toward red; haste tints them hot.
     const hpFrac = Math.max(0, Math.min(1, c.hp / maxHpOf(c)));
-    this.color.setRGB(1, 1, 1);
+    // A complexion of its own, on the same seed as its build: some run darker,
+    // some warmer. Small enough to read as individual variation rather than as
+    // the species being badly specified.
+    const tone = 0.93 + c.seed * 0.14;
+    this.color.setRGB(tone, tone * (0.98 + c.seed * 0.05), tone * (1.04 - c.seed * 0.08));
     if (hpFrac < 1) this.color.lerp(this.tmpColor.setRGB(1.25, 0.5, 0.42), (1 - hpFrac) * 0.65);
     if (c.hasteTicks > 0) this.color.lerp(this.tmpColor.setRGB(1.4, 1.25, 0.7), 0.35);
     batch.body.setColorAt(n, this.color);
@@ -652,6 +858,8 @@ export class CreatureRenderer {
     this.shadowMaterial.dispose();
     this.auraMaterial.dispose();
     this.sackMaterial.dispose();
+    this.badgeMesh.geometry.dispose();
+    this.badgeMaterial.dispose();
     this.celRamp.dispose();
   }
 }

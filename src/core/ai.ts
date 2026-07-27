@@ -421,7 +421,36 @@ function thinkImp(world: AIWorld, c: Creature): void {
     }
   }
 
-  // 5. Nothing to do. Mill about so the dungeon never looks frozen.
+  /*
+   * 5. Fetch gold from anywhere at all.
+   *
+   * The near-range sweep at the top of the ladder is deliberately short, so that
+   * one heap in a far corner cannot pull the whole workforce off a slab the
+   * player has just tagged. But short and *only* short meant gold could be
+   * stranded for the rest of the level: spoil an imp could not carry, a load set
+   * down because the vault was briefly full or unreachable, the contents of a
+   * seam dug out by an imp that then wandered off. None of it was lost — it sat
+   * on the floor, in plain sight, with nobody ever coming back for it, which
+   * from the player's chair is indistinguishable from it having been lost.
+   *
+   * So the same errand runs again with no distance limit, but only once there is
+   * nothing to dig, claim or reinforce. It can never delay work; it just means
+   * the dungeon eventually tidies up after itself.
+   */
+  if (world.hasTreasurySpace(c.owner)) {
+    const stranded = world.finder.findNearest(
+      ix, iy,
+      (x, y) => pass(x, y),
+      (x, y) => map.looseGoldAt(x, y) > 0,
+    );
+    if (stranded >= 0 && setPathTo(world, c, stranded)) {
+      c.targetTile = stranded;
+      c.state = CreatureState.Walking;
+      return;
+    }
+  }
+
+  // 6. Nothing to do. Mill about so the dungeon never looks frozen.
   wander(world, c);
 }
 

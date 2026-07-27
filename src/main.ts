@@ -254,7 +254,7 @@ function frame(): void {
   lavaGlow.update(time, camera.target);
   torches.syncIfDirty();
   torches.update(time, camera.target);
-  creatureRenderer.update(game.creatures, time, paused ? 0 : dt);
+  creatureRenderer.update(game.creatures, time, paused ? 0 : dt, rig.camera);
   particles.update(game.effects, dt);
   hand.update();
 
