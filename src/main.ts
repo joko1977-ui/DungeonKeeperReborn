@@ -12,6 +12,7 @@ import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
 import { DungeonDressing } from './render/dressing';
 import { LandmarkRenderer } from './render/landmarks';
+import { RoomShell } from './render/roomShell';
 import { SurveyView } from './render/surveyView';
 import { ThreatPath } from './render/threatPath';
 import { LavaGlow } from './render/lavaGlow';
@@ -54,6 +55,7 @@ const landmarks = new LandmarkRenderer(game.map);
 const dressing = new DungeonDressing(game.map);
 const threat = new ThreatPath(game.map, game.rooms);
 const survey = new SurveyView(game.map);
+const roomShell = new RoomShell(game.map);
 const atmosphere = new Atmosphere();
 const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
@@ -67,6 +69,7 @@ rig.scene.add(landmarks.group);
 rig.scene.add(dressing.group);
 rig.scene.add(threat.group);
 rig.scene.add(survey.group);
+rig.scene.add(roomShell.group);
 rig.scene.add(atmosphere.group);
 rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
@@ -236,6 +239,7 @@ function frame(): void {
   terrain.syncIfDirty();
   terrain.update(time);
   roomProps.syncIfDirty();
+  roomShell.syncIfDirty();
   // Gold heaps grow as the vault fills, so a treasury reads at a glance.
   const cap = game.treasuryCap();
   roomProps.setGoldFill(cap > 0 ? game.goldOf(Owner.Player) / cap : 0);
@@ -307,6 +311,10 @@ function frame(): void {
       atmosphere.setDensity(fps > 45 ? 1 : fps > 30 ? 0.6 : fps > 20 ? 0.3 : 0);
       dressing.setDensity(fps > 45 ? 1 : fps > 30 ? 0.7 : fps > 20 ? 0.4 : 0.2);
       lavaGlow.setBudget(fps > 40 ? 3 : fps > 25 ? 2 : 1);
+      // The kerbs and posts go late: they are what makes a room read as built,
+      // so they are worth more than the air or the scatter and are only shed
+      // when the device is genuinely struggling.
+      roomShell.setEnabled(fps > 18);
     }
   }
 
@@ -361,7 +369,7 @@ window.dk = { game, camera, rig, audio, narrator, director };
 window.dk.groups = {
   terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
   landmarks: landmarks.group, dressing: dressing.group, threat: threat.group,
-  survey: survey.group,
+  survey: survey.group, roomShell: roomShell.group,
   atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
   torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
   hand: hand.group,
@@ -391,6 +399,7 @@ if (import.meta.hot) {
     dressing.dispose();
     threat.dispose();
     survey.dispose();
+    roomShell.dispose();
     atmosphere.dispose();
     lavaGlow.dispose();
     creatureRenderer.dispose();

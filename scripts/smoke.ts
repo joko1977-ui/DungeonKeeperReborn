@@ -736,6 +736,48 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
   check('fury outranks the job in hand', badgeFor(imp) === BADGE_ANGRY);
 }
 
+/* -- rooms have a footprint ----------------------------------------------- */
+
+{
+  const { outwardSidesAt } = await import('../src/render/roomShell');
+  const g = generateLevel({ seed: 4242 });
+  const m = g.map;
+  const cx = g.startView().x, cy = g.startView().y;
+
+  // A clean three-by-three room, laid down by hand so the shape is known.
+  for (let y = cy - 1; y <= cy + 1; y++) {
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      m.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      m.room[m.idx(x, y)] = RoomType.Library;
+    }
+  }
+
+  const sidesAt = (x: number, y: number): number =>
+    outwardSidesAt(m, x, y).filter(Boolean).length;
+
+  check('the middle of a room is interior', sidesAt(cx, cy) === 0, sidesAt(cx, cy));
+  check('a room\'s corners have two open sides',
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].every(([dx, dy]) => sidesAt(cx + dx, cy + dy) === 2));
+  check('a room\'s edges have one',
+    [[0, -1], [-1, 0], [1, 0], [0, 1]].every(([dx, dy]) => sidesAt(cx + dx, cy + dy) === 1));
+
+  // A different room butting up against it is a different building, and the
+  // seam between them has to show on both sides.
+  for (let y = cy - 1; y <= cy + 1; y++) {
+    m.setTerrain(cx + 2, y, Terrain.Claimed, Owner.Player);
+    m.room[m.idx(cx + 2, y)] = RoomType.Workshop;
+  }
+  // Sides run anticlockwise from -Z, so index 3 is +X and index 1 is -X: the
+  // two faces that look at each other across the seam.
+  check('two rooms meeting each show an edge along the seam',
+    outwardSidesAt(m, cx + 1, cy)[3] && outwardSidesAt(m, cx + 2, cy)[1]);
+
+  // Extending the same room, though, dissolves the boundary between the halves.
+  for (let y = cy - 1; y <= cy + 1; y++) m.room[m.idx(cx + 2, y)] = RoomType.Library;
+  check('extending a room merges its footprint', sidesAt(cx + 1, cy) === 0,
+    sidesAt(cx + 1, cy));
+}
+
 /* -- the dig plan -------------------------------------------------------- */
 
 {

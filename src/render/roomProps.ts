@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OWNER_COLORS, Owner, RoomType, Terrain, isSolid } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
+import { SIDES, outwardSidesAt } from './roomShell';
 import { celRamp } from './celRamp';
 
 /**
@@ -192,10 +193,150 @@ function buildPortalSwirl(): THREE.BufferGeometry {
   return b.build();
 }
 
+/*
+ * Edge furniture: what stands against the wall rather than out on the floor.
+ *
+ * The nine-identical-props problem is not solved by adding more props, it is
+ * solved by the props knowing where they are. A bookshelf belongs against a
+ * wall with its spines facing in; a lectern belongs in the middle of the floor
+ * with space round it. Stamp either one onto all nine tiles and you get a
+ * storeroom, not a library.
+ *
+ * So each room now has two pieces. The edge piece is rotated to face inward and
+ * pushed back against the boundary, and the interior piece stands free. A
+ * three-by-three room is then eight of one round the outside and one of the
+ * other in the middle, which is what a room looks like.
+ *
+ * Everything here is built facing -Z, the direction the placement code treats as
+ * "toward the middle of the room".
+ */
+
+/** Treasury edge: a bound strongbox with the lid up and coins showing. */
+function buildStrongbox(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.box(0.52, 0.24, 0.30, 0, 0.12, 0, 0x6b4c2c);
+  // Iron bands and a lock plate.
+  b.box(0.54, 0.05, 0.32, 0, 0.08, 0, 0x8a8f9a);
+  b.box(0.10, 0.26, 0.33, -0.16, 0.13, 0, 0x8a8f9a);
+  b.box(0.10, 0.26, 0.33, 0.16, 0.13, 0, 0x8a8f9a);
+  // Lid, thrown back, and what is inside it.
+  b.box(0.52, 0.06, 0.28, 0, 0.30, -0.14, 0x7a5734, -0.9, 0, 0);
+  b.sphere(0.09, -0.10, 0.25, 0.02, 0xffd24a, 1.4, 0.5, 1.1, 7);
+  b.sphere(0.08, 0.09, 0.25, -0.01, 0xffdf72, 1.3, 0.5, 1.0, 7);
+  return b.build();
+}
+
+/** Lair edge: bones picked clean, stacked where they were dropped. */
+function buildBonePile(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  const bone = 0xd9d0b6, old = 0xb8ae92;
+  b.sphere(0.14, -0.06, 0.10, 0.02, bone, 1.2, 0.7, 1.0, 7);
+  for (let i = 0; i < 4; i++) {
+    const a = i * 1.31;
+    b.capsule(0.026, 0.24, Math.cos(a) * 0.12, 0.05 + i * 0.012, Math.sin(a) * 0.10,
+      i % 2 ? bone : old, 0, a, Math.PI / 2);
+  }
+  // A ribcage arc over the top, which is the bit that says "bones" at a glance.
+  for (let i = 0; i < 3; i++) {
+    b.torus(0.10 - i * 0.012, 0.016, 0.02 + i * 0.07, 0.13, -0.02, old, 0, Math.PI / 2, 0, Math.PI);
+  }
+  return b.build();
+}
+
+/** Hatchery edge: a feed trough on legs, with grain in it. */
+function buildTrough(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.box(0.60, 0.13, 0.24, 0, 0.20, 0, 0x8f6f42);
+  b.box(0.54, 0.09, 0.18, 0, 0.25, 0, 0xd9c07a);
+  for (const s of [-1, 1]) {
+    b.box(0.06, 0.16, 0.06, s * 0.24, 0.08, 0.07, 0x6f5432, 0, 0, s * 0.18);
+    b.box(0.06, 0.16, 0.06, s * 0.24, 0.08, -0.07, 0x6f5432, 0, 0, s * 0.18);
+  }
+  return b.build();
+}
+
+/** Training edge: a rack of practice weapons leaning against the wall. */
+function buildWeaponRack(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.box(0.62, 0.06, 0.14, 0, 0.06, 0.02, 0x7a5c38);
+  b.box(0.62, 0.05, 0.06, 0, 0.52, 0.06, 0x8a6a42);
+  for (const s of [-1, 1]) b.box(0.06, 0.58, 0.06, s * 0.28, 0.29, 0.06, 0x8a6a42);
+  // Three arms in the rack, each a different length so the top line is ragged.
+  const kit = [[-0.17, 0.62, 0xc3cad6], [0.02, 0.74, 0xb0b8c6], [0.19, 0.55, 0xc9d0dc]];
+  for (const [x, h, col] of kit) {
+    b.cylinder(0.020, 0.020, h, x, h / 2, 0.02, 0x9a7a4c, 0.10, 0, 0);
+    b.box(0.055, 0.20, 0.02, x, h - 0.06, 0.02, col, 0.10, 0, 0);
+  }
+  return b.build();
+}
+
+/** Library interior: a lectern with an open book on it. */
+function buildLectern(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.cylinder(0.17, 0.21, 0.05, 0, 0.025, 0, 0x4e3a22);
+  b.cylinder(0.045, 0.055, 0.50, 0, 0.27, 0, 0x6e5030);
+  // The sloped desk, and the book lying open on it.
+  b.box(0.36, 0.04, 0.26, 0, 0.53, 0, 0x7a5a34, -0.42, 0, 0);
+  b.box(0.16, 0.03, 0.22, -0.09, 0.58, 0.01, 0xf2ead2, -0.42, 0, 0.05);
+  b.box(0.16, 0.03, 0.22, 0.09, 0.58, 0.01, 0xe8dfc4, -0.42, 0, -0.05);
+  // Scrolls in a basket at the foot of it.
+  for (let i = 0; i < 3; i++) {
+    b.cylinder(0.028, 0.028, 0.20, 0.19 + i * 0.03, 0.10 + i * 0.02, 0.16,
+      0xe0d3ab, 0.5, i * 0.7, 0.35);
+  }
+  return b.build();
+}
+
+/** Workshop edge: a cluttered bench with a vice and a rack of stock. */
+function buildWorkbench(): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  b.box(0.66, 0.06, 0.28, 0, 0.42, 0, 0x8a6a42);
+  for (const s of [-1, 1]) {
+    b.box(0.07, 0.40, 0.07, s * 0.28, 0.20, 0.09, 0x6f5432);
+    b.box(0.07, 0.40, 0.07, s * 0.28, 0.20, -0.09, 0x6f5432);
+  }
+  // A vice clamped to the near end, and offcuts on the top.
+  b.box(0.12, 0.10, 0.14, -0.24, 0.50, 0.02, 0x8f97a6);
+  b.cylinder(0.018, 0.018, 0.16, -0.24, 0.50, 0.12, 0xb0b8c6, Math.PI / 2, 0, 0);
+  b.box(0.20, 0.05, 0.10, 0.10, 0.47, 0.02, 0xb0b8c6, 0, 0.3, 0);
+  b.cylinder(0.022, 0.022, 0.26, 0.20, 0.47, -0.06, 0xcfd5e0, 0, 0.9, Math.PI / 2);
+  // Tools hung on the wall behind it.
+  b.box(0.04, 0.22, 0.02, -0.10, 0.74, -0.12, 0x9aa0aa);
+  b.box(0.14, 0.05, 0.02, 0.08, 0.78, -0.12, 0x9aa0aa);
+  b.box(0.03, 0.18, 0.02, 0.08, 0.68, -0.12, 0xbc9c70);
+  return b.build();
+}
+
 /* --------------------------------------------------------------- render -- */
+
+/**
+ * How much of a room's boundary the edge piece takes over.
+ *
+ * For most rooms the answer is "all of it": shelves, racks and benches belong
+ * against the wall, and the middle is the floor you work on. But in a treasury
+ * and a hatchery the tiled piece *is* the room's contents — the gold you are
+ * hoarding, the eggs you are growing — and evicting eight tiles of it to make
+ * room for scenery would be lying about the state of the game. Those two get
+ * their edge piece on the corners only, where it frames the contents instead of
+ * replacing them.
+ */
+type EdgeRule = 'boundary' | 'corners';
 
 interface PropBatch {
   mesh: THREE.InstancedMesh;
+  /** What stands against the room's boundary, facing in. Null if it has none. */
+  edgeMesh: THREE.InstancedMesh | null;
+  edgeRule: EdgeRule;
+  /**
+   * Tiles that took the interior piece, in the instance order they were written.
+   *
+   * The treasury re-lays its heaps every frame to grow them with the vault, and
+   * it has to write them to the same slots the rebuild used. Walking the room's
+   * whole tile list instead put heaps on the corner tiles that are now chests,
+   * with the counts out of step — the piles ended up under the furniture and
+   * some tiles got nothing at all.
+   */
+  interiorTiles: number[];
   /** Room this furniture belongs to. */
   room: RoomType;
   /** Tiles it was placed on, for animation that needs to know where. */
@@ -278,25 +419,43 @@ export class RoomPropRenderer {
       emissiveIntensity: 0.4,
     });
 
-    const tiled: Array<[RoomType, THREE.BufferGeometry]> = [
-      [RoomType.Treasury, buildGoldPile()],
-      [RoomType.Lair, buildLairNest()],
-      [RoomType.Hatchery, buildHatcheryNest()],
-      [RoomType.TrainingRoom, buildTrainingDummy()],
-      [RoomType.Library, buildBookshelf()],
-      [RoomType.Workshop, buildWorkshopAnvil()],
-      [RoomType.Bridge, buildBridgeRail()],
+    /*
+     * Interior piece, then edge piece.
+     *
+     * The Library's pair is the clearest case of why they are two: the shelf was
+     * the room's only prop and it was stamped on all nine tiles, so a library was
+     * a block of shelving with no floor to read in. The shelf is now what stands
+     * against the wall, and the lectern is what the room is *for*.
+     *
+     * The Bridge has no edge piece: it is a span, not an enclosure, and its rails
+     * already run along both sides of every tile.
+     */
+    const tiled: Array<
+      [RoomType, THREE.BufferGeometry, THREE.BufferGeometry | null, EdgeRule]
+    > = [
+      [RoomType.Treasury, buildGoldPile(), buildStrongbox(), 'corners'],
+      [RoomType.Lair, buildLairNest(), buildBonePile(), 'boundary'],
+      [RoomType.Hatchery, buildHatcheryNest(), buildTrough(), 'corners'],
+      [RoomType.TrainingRoom, buildTrainingDummy(), buildWeaponRack(), 'boundary'],
+      [RoomType.Library, buildLectern(), buildBookshelf(), 'boundary'],
+      [RoomType.Workshop, buildWorkshopAnvil(), buildWorkbench(), 'boundary'],
+      [RoomType.Bridge, buildBridgeRail(), null, 'boundary'],
     ];
-    for (const [room, geo] of tiled) {
+    for (const [room, geo, edgeGeo, edgeRule] of tiled) {
       const material = room === RoomType.Treasury ? this.goldMaterial : this.material;
-      const mesh = new THREE.InstancedMesh(geo, material, MAX_PROPS);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.frustumCulled = false;
-      mesh.count = 0;
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      this.batches.set(room, { mesh, room, tiles: [] });
-      this.group.add(mesh);
+      const make = (g: THREE.BufferGeometry): THREE.InstancedMesh => {
+        const m = new THREE.InstancedMesh(g, material, MAX_PROPS);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        m.frustumCulled = false;
+        m.count = 0;
+        m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.group.add(m);
+        return m;
+      };
+      const mesh = make(geo);
+      const edgeMesh = edgeGeo ? make(edgeGeo) : null;
+      this.batches.set(room, { mesh, edgeMesh, edgeRule, room, tiles: [], interiorTiles: [] });
     }
 
     /*
@@ -356,6 +515,7 @@ export class RoomPropRenderer {
 
     for (const batch of this.batches.values()) {
       batch.tiles.length = 0;
+      batch.interiorTiles.length = 0;
     }
     // Collect the tiles of each centrepiece room so we can find its middle.
     const heartTiles = new Map<Owner, number[]>();
@@ -379,27 +539,76 @@ export class RoomPropRenderer {
       if (batch && batch.tiles.length < MAX_PROPS) batch.tiles.push(i);
     }
 
-    // Lay out the tiled furniture.
+    // Lay out the tiled furniture, each piece according to where it stands.
     for (const batch of this.batches.values()) {
-      let n = 0;
+      let n = 0, edgeN = 0;
       for (const tile of batch.tiles) {
         const x = map.xOf(tile), y = map.yOf(tile);
-        const spin = tileRandom(tile, 1) * Math.PI * 2;
         const scale = 0.86 + tileRandom(tile, 2) * 0.26;
-        // Nudge off-centre so a grid of furniture doesn't look like a grid.
+
+        // A bridge is a span, not a room: its rails stay square to the tile and
+        // it has no inside or outside to speak of.
+        if (batch.room === RoomType.Bridge) {
+          dummy.position.set(x, 0, y);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.setScalar(1);
+          dummy.updateMatrix();
+          batch.mesh.setMatrixAt(n++, dummy.matrix);
+          batch.interiorTiles.push(tile);
+          continue;
+        }
+
+        const outward = outwardSidesAt(map, x, y);
+        let sides = 0, sx = 0, sz = 0;
+        for (let s = 0; s < 4; s++) {
+          if (!outward[s]) continue;
+          sides++;
+          sx += SIDES[s][0];
+          sz += SIDES[s][1];
+        }
+
+        const wantsEdge = batch.edgeRule === 'corners'
+          ? sides === 2
+          : sides > 0 && sides < 3;
+        if (batch.edgeMesh && wantsEdge) {
+          /*
+           * Against the boundary, facing in.
+           *
+           * The piece is modelled facing -Z, so the yaw that turns -Z toward the
+           * middle of the room is the bearing of the *inward* direction — the
+           * negated sum of the outward sides. On a corner tile that sum points
+           * diagonally, and the piece tucks into the corner at forty-five
+           * degrees, which is exactly where a real one would end up.
+           */
+          const len = Math.hypot(sx, sz) || 1;
+          const inx = -sx / len, inz = -sz / len;
+          dummy.position.set(x - inx * 0.24, 0, y - inz * 0.24);
+          dummy.rotation.set(0, Math.atan2(-inx, -inz), 0);
+          dummy.scale.setScalar(scale);
+          dummy.updateMatrix();
+          batch.edgeMesh.setMatrixAt(edgeN++, dummy.matrix);
+          continue;
+        }
+
+        // Out on the floor: free to sit at any angle, nudged off the grid.
+        const spin = tileRandom(tile, 1) * Math.PI * 2;
         const ox = (tileRandom(tile, 3) - 0.5) * 0.22;
         const oz = (tileRandom(tile, 4) - 0.5) * 0.22;
-
         dummy.position.set(x + ox, 0, y + oz);
-        // Bridges span a gap; their rails must stay square to the tile.
-        dummy.rotation.set(0, batch.room === RoomType.Bridge ? 0 : spin, 0);
-        dummy.scale.set(scale, scale, scale);
+        dummy.rotation.set(0, spin, 0);
+        dummy.scale.setScalar(scale);
         dummy.updateMatrix();
         batch.mesh.setMatrixAt(n++, dummy.matrix);
+        batch.interiorTiles.push(tile);
       }
       batch.mesh.count = n;
       batch.mesh.instanceMatrix.needsUpdate = true;
       batch.mesh.computeBoundingSphere();
+      if (batch.edgeMesh) {
+        batch.edgeMesh.count = edgeN;
+        batch.edgeMesh.instanceMatrix.needsUpdate = true;
+        batch.edgeMesh.computeBoundingSphere();
+      }
     }
 
     // Loose gold, wherever it is lying. Sized by how much is in the heap, so a
@@ -495,7 +704,7 @@ export class RoomPropRenderer {
       // Full vaults should look heaped, not like traffic cones.
       const height = 0.35 + this.goldFill * 0.5;
       let n = 0;
-      for (const tile of treasury.tiles) {
+      for (const tile of treasury.interiorTiles) {
         const x = map.xOf(tile), y = map.yOf(tile);
         const scale = 0.86 + tileRandom(tile, 2) * 0.26;
         const ox = (tileRandom(tile, 3) - 0.5) * 0.22;
@@ -546,7 +755,10 @@ export class RoomPropRenderer {
   }
 
   dispose(): void {
-    for (const b of this.batches.values()) b.mesh.geometry.dispose();
+    for (const b of this.batches.values()) {
+      b.mesh.geometry.dispose();
+      b.edgeMesh?.geometry.dispose();
+    }
     for (const m of [this.heartBase, this.heartCore, this.portalRing, this.portalSwirl]) {
       m.geometry.dispose();
     }
