@@ -1,6 +1,7 @@
 import {
   HAND_CAPACITY,
   HEART_HP,
+  ROOM_MAX_LEVEL,
   isDiggable,
   isWalkable,
   MANA_BASE_REGEN,
@@ -51,7 +52,10 @@ import {
   objectiveDetail,
 } from './objectives';
 import { PathFinder } from './pathfinding';
-import { RoomIndex, buildRoom, heartTile, nearestRoomTile, sellRoom, treasuryCapacity } from './rooms';
+import {
+  RoomIndex, buildRoom, heartTile, nearestRoomTile, roomOutput, sellRoom,
+  treasuryCapacity, upgradeCostPerTile,
+} from './rooms';
 import { DigField, Survey, surveyDungeon } from './survey';
 import { TileMap } from './tilemap';
 import { simInt } from './sim';
@@ -394,6 +398,125 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     return true;
   }
 
+  /**
+   * Improve the building under a tile, one level, for gold.
+   *
+   * A room could only ever get *wider*, which meant a keeper boxed in by bedrock
+   * had no way left to grow — and on a map where ground is the scarce thing,
+   * that is most of the late game. Upgrading is the other axis: pay more per
+   * tile than the tile cost to build, get more out of every square you already
+   * hold.
+   *
+   * It levels the whole connected building, not the tile you clicked. Clicking a
+   * corner and getting one improved square would be a fiddly, invisible thing to
+   * have to do nine times.
+   */
+  upgradeRoom(x: number, y: number): boolean {
+    const map = this.map;
+    if (!map.inBounds(x, y)) return false;
+    const i = map.idx(x, y);
+    const type = map.room[i] as RoomType;
+    if (type === RoomType.None || map.owner[i] !== Owner.Player) return false;
+    if (!ROOM_SPECS[type].buildable) {
+      this.notify('That is not something you can improve.', 'bad-placement');
+      return false;
+    }
+
+    const tiles = this.buildingAt(x, y);
+    // The building levels as one, so it is the lowest tile that decides what an
+    // upgrade costs and what it buys.
+    let level = ROOM_MAX_LEVEL;
+    for (const t of tiles) level = Math.min(level, map.roomLevel[t]);
+    if (level >= ROOM_MAX_LEVEL) {
+      this.notify(`Your ${ROOM_SPECS[type].name} is already as good as it gets.`,
+        'bad-placement');
+      return false;
+    }
+
+    const cost = upgradeCostPerTile(type, level) * tiles.length;
+    if (this.goldOf(Owner.Player) < cost) {
+      this.notify(`Improving that ${ROOM_SPECS[type].name} costs ${cost} gold.`,
+        'bad-placement');
+      return false;
+    }
+    this.withdrawGold(Owner.Player, cost);
+    for (const t of tiles) map.roomLevel[t] = level + 1;
+    map.version++;
+    this.notify(
+      `${ROOM_SPECS[type].name} improved to level ${level + 1}.`, 'objective-done');
+    this.effect('build', x, y);
+    return true;
+  }
+
+  /** What an upgrade here would cost, and what level it would reach. -1 if none. */
+  upgradeQuote(x: number, y: number): { cost: number; level: number; tiles: number } | null {
+    const map = this.map;
+    if (!map.inBounds(x, y)) return null;
+    const i = map.idx(x, y);
+    const type = map.room[i] as RoomType;
+    if (type === RoomType.None || map.owner[i] !== Owner.Player) return null;
+    if (!ROOM_SPECS[type].buildable) return null;
+    const tiles = this.buildingAt(x, y);
+    let level = ROOM_MAX_LEVEL;
+    for (const t of tiles) level = Math.min(level, map.roomLevel[t]);
+    if (level >= ROOM_MAX_LEVEL) return { cost: 0, level, tiles: tiles.length };
+    return {
+      cost: upgradeCostPerTile(type, level) * tiles.length,
+      level: level + 1,
+      tiles: tiles.length,
+    };
+  }
+
+  /** Every tile of the connected building under this one. */
+  buildingAt(x: number, y: number): number[] {
+    const map = this.map;
+    const start = map.idx(x, y);
+    const type = map.room[start] as RoomType;
+    const owner = map.owner[start] as Owner;
+    if (type === RoomType.None) return [];
+    const seen = new Set<number>([start]);
+    const out: number[] = [start];
+    const queue = [start];
+    while (queue.length > 0) {
+      const t = queue.shift()!;
+      const tx = map.xOf(t), ty = map.yOf(t);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = tx + dx, ny = ty + dy;
+        if (!map.inBounds(nx, ny)) continue;
+        const n = map.idx(nx, ny);
+        if (seen.has(n)) continue;
+        if (map.room[n] !== type || map.owner[n] !== owner) continue;
+        seen.add(n);
+        out.push(n);
+        queue.push(n);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The level of the room under a tile, or 0. Used by the AI and the renderer.
+   */
+  roomLevelAt(x: number, y: number): number {
+    if (!this.map.inBounds(x, y)) return 0;
+    return this.map.roomLevel[this.map.idx(x, y)];
+  }
+
+  /** What one tile of the room here is worth, as a multiplier. 1 if unimproved. */
+  roomPowerAt(x: number, y: number): number {
+    if (!this.map.inBounds(x, y)) return 1;
+    return roomOutput(this.map.roomLevel[this.map.idx(x, y)]);
+  }
+
+  /** Total output of a keeper's rooms of a type, counting each tile's level. */
+  roomOutputOf(owner: Owner, type: RoomType): number {
+    let total = 0;
+    for (const t of this.rooms.tilesOf(this.map, owner, type)) {
+      total += roomOutput(this.map.roomLevel[t]);
+    }
+    return total;
+  }
+
   territoryOf(owner: Owner): number {
     return this.map.countOwned(owner);
   }
@@ -648,7 +771,9 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
       // what the creatures eat, or a hatchery that looks big enough still
       // starves them: a creature works through roughly three birds per hunger
       // cycle, so a tile needs to produce well ahead of a tile's worth of mouths.
-      const hatchery = this.rooms.count(this.map, owner, RoomType.Hatchery);
+      // Counted by output, so an improved hatchery both holds more birds and
+      // restocks faster — the two things "a better hatchery" ought to mean.
+      const hatchery = this.roomOutputOf(owner, RoomType.Hatchery);
       if (k.food < hatchery) k.food = Math.min(hatchery, k.food + hatchery * 0.01);
     }
   }
@@ -710,7 +835,10 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     }
     if (workers === 0) return;
 
-    this.manufacturePoints += workers * MANUFACTURE_RATE;
+    // A better workshop turns the same crew's work out faster.
+    const bench = workshopTiles > 0
+      ? this.roomOutputOf(Owner.Player, RoomType.Workshop) / workshopTiles : 1;
+    this.manufacturePoints += workers * MANUFACTURE_RATE * bench;
 
     const target = this.manufactureTarget;
     const spec = target.kind === 'trap'

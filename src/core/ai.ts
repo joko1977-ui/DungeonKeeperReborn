@@ -58,6 +58,8 @@ export interface AIWorld {
   isLairFree(tile: number): boolean;
   /** A clump of free lair tiles big enough for this creature, or empty. */
   findLairFor(creature: Creature, x: number, y: number): number[];
+  /** What one tile of the room here is worth, as a multiplier. 1 if unimproved. */
+  roomPowerAt(x: number, y: number): number;
   /** Can this creature have that room tile to itself? */
   isWorkTileFree(tile: number, forCreature: Creature): boolean;
 
@@ -904,10 +906,14 @@ function creatureWorkAtTarget(world: AIWorld, c: Creature): boolean {
       }
       return false;
 
-    case RoomType.Lair:
+    case RoomType.Lair: {
+      // A better bed rests and heals faster. It is the least glamorous upgrade
+      // and probably the strongest: a creature back on its feet sooner is a
+      // creature working, training or fighting for you sooner.
+      const comfort = world.roomPowerAt(tx, ty);
       c.state = CreatureState.Sleeping;
-      c.tiredness = Math.max(0, c.tiredness - 0.9);
-      c.hp = Math.min(maxHpOf(c), c.hp + maxHpOf(c) * 0.004);
+      c.tiredness = Math.max(0, c.tiredness - 0.9 * comfort);
+      c.hp = Math.min(maxHpOf(c), c.hp + maxHpOf(c) * 0.004 * comfort);
       if (c.stateTimer % 25 === 0) world.effect('sleep', c.x, c.y);
       if (c.tiredness <= 2 && c.hp >= maxHpOf(c) * 0.95) {
         c.state = CreatureState.Idle;
@@ -915,13 +921,17 @@ function creatureWorkAtTarget(world: AIWorld, c: Creature): boolean {
         c.thinkCooldown = 0;
       }
       return true;
+    }
 
     case RoomType.TrainingRoom: {
       c.state = CreatureState.Training;
+      // An improved training room teaches faster for the same fee, which is the
+      // whole reason to sink gold into one rather than into more floor.
+      const rig = world.roomPowerAt(tx, ty);
       if (c.stateTimer % 20 === 0) {
         // Training costs the keeper gold — the room is a money sink by design.
         if (world.withdrawGold(c.owner, 25) >= 25) {
-          c.experience += 30;
+          c.experience += 30 * rig;
           levelUpIfReady(world, c);
           world.effect('train', c.x, c.y);
         } else {
@@ -946,7 +956,7 @@ function creatureWorkAtTarget(world: AIWorld, c: Creature): boolean {
 
     case RoomType.Library:
       c.state = CreatureState.Researching;
-      world.addResearch(c.owner, 0.5 * c.level);
+      world.addResearch(c.owner, 0.5 * c.level * world.roomPowerAt(tx, ty));
       if (c.stateTimer % 30 === 0) world.effect('research', c.x, c.y);
       c.tiredness = Math.min(100, c.tiredness + 0.1);
       return true;

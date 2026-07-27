@@ -69,6 +69,7 @@ export function showBriefing(
         <dt>Roster panel</dt><dd>Click a creature to snatch one without moving the view; click again for more. Right-click to go and look at one instead</dd>
         <dt>Health bars</dt><dd>Over anything hurt or fighting. Snatch the one that is nearly dead out of the brawl</dd>
         <dt>Enemy rooms</dt><dd>You cannot capture them. Send imps to claim the floor they stand on and the building comes down with the ground</dd>
+        <dt>Improve</dt><dd>The trowel on the tool rail. Click one of your rooms to level the whole building up — three levels, dearer each time. A better vault holds more, a better lair rests faster, a better training room teaches quicker. Widening is still the cheap way to grow; improving is what you do when there is nowhere left to widen into</dd>
         <dt>Right click</dt><dd>Slap a creature to hurry it along, or clear an excavation tag</dd>
         <dt>Middle drag</dt><dd>Rotate the view &nbsp;·&nbsp; <b>Q</b> / <b>E</b> to spin</dd>
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>

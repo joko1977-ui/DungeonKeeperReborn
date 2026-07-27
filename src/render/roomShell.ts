@@ -44,6 +44,9 @@ const SHELLED: readonly RoomType[] = [
   RoomType.Library, RoomType.Workshop, RoomType.DungeonHeart, RoomType.Portal,
 ];
 
+/** What an improved room's stonework is dressed toward. */
+const GILT = new THREE.Color(0xffd98a);
+
 /** Kerb tint per room, so the edging carries the room's own material. */
 const KERB_COLOUR: Partial<Record<RoomType, number>> = {
   [RoomType.Treasury]: 0xbfae7c,
@@ -306,10 +309,18 @@ export class RoomShell {
       const x = map.xOf(i), y = map.yOf(i);
       const outward = outwardSidesAt(map, x, y);
 
-      // A bigger building is built heavier: the kerb thickens and stands
-      // taller, which is what you see first from above.
+      /*
+       * Two things make a building look important, and they are different.
+       *
+       * Size is how much floor it covers; level is how much has been spent on
+       * the floor it has. They have to read differently or upgrading looks like
+       * the room got bigger, so size thickens and heightens the stonework while
+       * level *gilds* it — the kerb brightens toward gold and the columns grow
+       * a course at a time.
+       */
       const grand = grandeur(sizes[i]);
-      const kerbScale = 1 + grand * 0.55;
+      const level = Math.max(1, map.roomLevel[i]);
+      const kerbScale = (1 + grand * 0.55) * (1 + (level - 1) * 0.16);
 
       for (let s = 0; s < 4; s++) {
         if (!outward[s] || kerbN >= MAX_KERB) continue;
@@ -318,7 +329,7 @@ export class RoomShell {
         dummy.scale.set(1, kerbScale, 1 + grand * 0.35);
         dummy.updateMatrix();
         this.kerb.setMatrixAt(kerbN, dummy.matrix);
-        colour.setHex(tint);
+        colour.setHex(tint).lerp(GILT, (level - 1) * 0.32);
         this.kerb.setColorAt(kerbN, colour);
         kerbN++;
       }
@@ -351,7 +362,7 @@ export class RoomShell {
           if (at >= MAX_POSTS) break;
           dummy.position.set(x + SIDES[s][0] * 0.5, 0, y + SIDES[s][1] * 0.5);
           dummy.rotation.set(0, Math.atan2(SIDES[s][0], SIDES[s][1]), 0);
-          dummy.scale.setScalar(0.72 + grand * 0.5);
+          dummy.scale.setScalar((0.72 + grand * 0.5) * (1 + (level - 1) * 0.17));
           dummy.updateMatrix();
           mesh.setMatrixAt(at, dummy.matrix);
           postN.set(room, at + 1);
@@ -368,8 +379,9 @@ export class RoomShell {
         const cz = (SIDES[s][1] + SIDES[next][1]) * 0.5;
         dummy.position.set(x + cx, 0, y + cz);
         dummy.rotation.set(0, Math.atan2(cx, cz), 0);
-        // Corner columns grow with the hall they hold up.
-        dummy.scale.setScalar(0.9 + grand * 0.75);
+        // Corner columns grow with the hall they hold up, and again with what
+        // has been spent on it.
+        dummy.scale.setScalar((0.9 + grand * 0.75) * (1 + (level - 1) * 0.17));
         dummy.updateMatrix();
         mesh.setMatrixAt(at, dummy.matrix);
         postN.set(room, at + 1);

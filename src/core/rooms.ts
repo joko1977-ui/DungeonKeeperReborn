@@ -48,9 +48,37 @@ export class RoomIndex {
   }
 }
 
-/** How much gold a keeper's treasury can hold. */
+/**
+ * How much gold a keeper's treasury can hold.
+ *
+ * Every tile counts for its own level, so an upgraded vault is worth more per
+ * square than a raw one — which is the point of upgrading rather than only ever
+ * digging wider. A keeper hemmed in by bedrock can still grow his economy.
+ */
 export function treasuryCapacity(map: TileMap, index: RoomIndex, owner: Owner): number {
-  return index.count(map, owner, RoomType.Treasury) * TREASURY_TILE_CAPACITY;
+  let cap = 0;
+  for (const t of index.tilesOf(map, owner, RoomType.Treasury)) {
+    cap += TREASURY_TILE_CAPACITY * roomOutput(map.roomLevel[t]);
+  }
+  return cap;
+}
+
+/**
+ * What one tile of a room at this level is worth, as a multiplier.
+ *
+ * Deliberately less than linear in cost: an upgrade is dearer than the tiles it
+ * improves would be to build, so widening stays the cheap way to grow and
+ * upgrading is what you do when you have run out of room to widen into. Ground
+ * is the scarce thing in this game and it should stay that way.
+ */
+export function roomOutput(level: number): number {
+  if (level <= 1) return 1;
+  return level === 2 ? 1.6 : 2.3;
+}
+
+/** Gold to take one tile of this room from `level` to the next. */
+export function upgradeCostPerTile(type: RoomType, level: number): number {
+  return Math.round(ROOM_SPECS[type].cost * (level === 1 ? 1.4 : 2.2));
 }
 
 export interface BuildResult {
@@ -100,6 +128,7 @@ export function buildRoom(
         };
       }
       map.room[i] = type;
+      map.roomLevel[i] = 1;
       spent += spec.cost;
       placed++;
     }

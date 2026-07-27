@@ -316,6 +316,15 @@ export const TAB_ICONS = {
      <path d="M21 3l6 3-3 5-5-3z" fill="#c8a860"/>`,
     '#b8a070',
   ),
+  /** A trowel over a rising course of blocks: making a room better, not bigger. */
+  improve: wrap(
+    `<path d="M5 26h9v-5H5z" fill="#8a7a5a"/>
+     <path d="M8 21h11v-5H8z" fill="#a89272"/>
+     <path d="M11 16h11v-5H11z" fill="#c4ac86"/>
+     <path d="M22 12l5-6 3 3-5 6z" fill="#c0c6d0"/>
+     <path d="M25 20l2-5 2 5-2 1z" fill="#ffd24a"/>`,
+    '#d8a03c',
+  ),
   sell: wrap(
     `<path d="M6 18l8-8 5 5-8 8H6z" fill="#8a6520"/>
      <path d="M18 8l6-4 4 6-4 4z" fill="#c0c6d0"/>

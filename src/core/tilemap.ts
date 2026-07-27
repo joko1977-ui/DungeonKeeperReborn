@@ -32,6 +32,18 @@ export class TileMap {
   readonly room: Uint8Array;
   /** Index into GameState.rooms, or 0xffff for "no room". */
   readonly roomId: Uint16Array;
+  /**
+   * How far a room tile has been upgraded, 1 to ROOM_MAX_LEVEL. Zero off-room.
+   *
+   * Stored per tile rather than per building because a building is not an
+   * object anywhere in this codebase — it is whatever set of touching tiles
+   * happens to share a type and an owner, and that set changes every time you
+   * extend or lose a corner of it. Levelling the tiles means a room that grows
+   * keeps its level on the old part and starts the new part at one, which is
+   * both easy to reason about and exactly what you would expect: you upgraded
+   * that hall, not the ground you have just added to it.
+   */
+  readonly roomLevel: Uint8Array;
   /** Gold left in a seam, or gold stored on a treasury tile. */
   readonly gold: Uint16Array;
   readonly flags: Uint8Array;
@@ -59,6 +71,7 @@ export class TileMap {
     this.health = new Float32Array(n);
     this.room = new Uint8Array(n);
     this.roomId = new Uint16Array(n).fill(0xffff);
+    this.roomLevel = new Uint8Array(n);
     this.gold = new Uint16Array(n);
     this.flags = new Uint8Array(n);
     this.trap = new Uint8Array(n);
@@ -132,6 +145,7 @@ export class TileMap {
     if (t !== Terrain.Claimed) {
       this.room[i] = RoomType.None;
       this.roomId[i] = 0xffff;
+      this.roomLevel[i] = 0;
     }
     // A device cannot survive the floor under it being dug out or reclaimed.
     this.trap[i] = 0;
@@ -292,6 +306,7 @@ export class TileMap {
       this.health[i] = 0;
       this.room[i] = RoomType.None;
       this.roomId[i] = 0xffff;
+      this.roomLevel[i] = 0;
       this.version++;
       return false;
     }

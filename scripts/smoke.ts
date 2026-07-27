@@ -796,6 +796,74 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
+/* -- buildings can be improved -------------------------------------------- */
+
+{
+  const g = generateLevel({ seed: 5252 });
+  const gm = g.map;
+  const gs = g.startView();
+
+  // A three-by-three treasury of the player's own, laid by hand.
+  const bx = gs.x + 5, by = gs.y + 5;
+  for (let y = by; y < by + 3; y++) {
+    for (let x = bx; x < bx + 3; x++) {
+      gm.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      gm.room[gm.idx(x, y)] = RoomType.Treasury;
+      gm.roomLevel[gm.idx(x, y)] = 1;
+    }
+  }
+
+  check('a new room starts at level one', g.roomLevelAt(bx, by) === 1);
+  const capAtOne = g.treasuryCap();
+
+  const quote = g.upgradeQuote(bx, by);
+  check('an upgrade is quoted for the whole building',
+    quote !== null && quote.tiles === 9 && quote.level === 2, quote);
+
+  // Too poor: it must refuse rather than half-do it.
+  g.keeper(Owner.Player).gold = 10;
+  check('an upgrade you cannot afford does not happen',
+    !g.upgradeRoom(bx, by) && g.roomLevelAt(bx, by) === 1);
+
+  g.keeper(Owner.Player).gold = 90000;
+  check('and one you can afford does', g.upgradeRoom(bx, by));
+  check('it levels the whole building, not the tile clicked',
+    [...Array(9)].every((_, k) => g.roomLevelAt(bx + (k % 3), by + Math.floor(k / 3)) === 2));
+  check('an improved treasury holds more', g.treasuryCap() > capAtOne,
+    { was: capAtOne, now: g.treasuryCap() });
+
+  const spentOn = g.goldOf(Owner.Player);
+  check('and it charges for it', spentOn < 90000);
+
+  // Levels stop at the cap, and say so rather than silently taking the gold.
+  g.upgradeRoom(bx, by);
+  check('a second upgrade reaches the ceiling', g.roomLevelAt(bx, by) === 3);
+  const atCeiling = g.goldOf(Owner.Player);
+  check('and a third is refused', !g.upgradeRoom(bx, by));
+  check('without charging for it', g.goldOf(Owner.Player) === atCeiling);
+
+  /*
+   * Extending a room does not extend its level.
+   *
+   * You improved that hall, not the ground you have just added to it — and the
+   * tile-level store is what makes that fall out for free rather than needing a
+   * rule.
+   */
+  gm.setTerrain(bx + 3, by, Terrain.Claimed, Owner.Player);
+  gm.room[gm.idx(bx + 3, by)] = RoomType.Treasury;
+  gm.roomLevel[gm.idx(bx + 3, by)] = 1;
+  check('new floor added to a room starts at level one',
+    g.roomLevelAt(bx + 3, by) === 1 && g.roomLevelAt(bx, by) === 3);
+  const mixed = g.upgradeQuote(bx, by);
+  check('and the building quotes from its weakest tile',
+    mixed !== null && mixed.level === 2, mixed);
+
+  // Losing the floor loses the investment with it.
+  gm.setTerrain(bx, by, Terrain.Earth, Owner.None);
+  check('and a room that loses its floor loses its level',
+    gm.roomLevel[gm.idx(bx, by)] === 0);
+}
+
 /* -- the hand carries a fistful ------------------------------------------- */
 
 {

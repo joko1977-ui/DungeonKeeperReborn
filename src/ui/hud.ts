@@ -183,6 +183,18 @@ export class Hud {
     rail.appendChild(sell);
     this.tabButtons.set('sell' as TabId, sell);
 
+    // Improving applies across all rooms too, so it sits beside selling.
+    const improve = document.createElement('div');
+    improve.className = 'tab';
+    improve.innerHTML = TAB_ICONS.improve;
+    improve.title = 'Improve a room (click one of your rooms to level up the whole building)';
+    improve.addEventListener('click', () => {
+      this.selectTool(
+        this.selectedTool.kind === 'improve' ? { kind: 'hand' } : { kind: 'improve' });
+    });
+    rail.appendChild(improve);
+    this.tabButtons.set('improve' as TabId, improve);
+
     this.updateTabHighlight();
   }
 
@@ -194,10 +206,12 @@ export class Hud {
 
   private updateTabHighlight(): void {
     for (const [id, el] of this.tabButtons) {
-      const isSell = (id as string) === 'sell';
-      const active = isSell
-        ? this.selectedTool.kind === 'sell'
-        : id === this.activeTab && this.selectedTool.kind !== 'sell';
+      const asString = id as string;
+      const isAction = asString === 'sell' || asString === 'improve';
+      const active = isAction
+        ? this.selectedTool.kind === asString
+        : id === this.activeTab && !isAction && this.selectedTool.kind !== 'sell'
+          && this.selectedTool.kind !== 'improve';
       el.classList.toggle('active', active);
     }
   }

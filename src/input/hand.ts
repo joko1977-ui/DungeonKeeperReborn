@@ -13,7 +13,9 @@ export type Tool =
   | { kind: 'spell'; spell: SpellType }
   | { kind: 'trap'; trap: TrapType }
   | { kind: 'door'; door: DoorType }
-  | { kind: 'sell' };
+  | { kind: 'sell' }
+  /** Click a room to spend gold improving the whole building. */
+  | { kind: 'improve' };
 
 export interface HandEvents {
   /** Fired when a tool finishes its action, so the panel can deselect. */
@@ -400,6 +402,20 @@ export class HandOfEvil {
         return;
       }
 
+      case 'improve': {
+        /*
+         * A click, not a drag. Upgrading levels the whole connected building, so
+         * dragging a rectangle over it would either do the same thing several
+         * times or charge for the same room twice.
+         */
+        const tile = this.hoverTile;
+        if (tile >= 0) {
+          const gx = this.game.map.xOf(tile), gy = this.game.map.yOf(tile);
+          if (!this.game.upgradeRoom(gx, gy)) this.flashBlocked();
+        }
+        return;
+      }
+
       case 'room':
       case 'sell':
         // Rectangle tools preview during the drag and commit on release.
@@ -570,6 +586,7 @@ export class HandOfEvil {
     if (this.tool.kind === 'spell') return 'cursor-spell';
     if (this.tool.kind === 'room') return 'cursor-build';
     if (this.tool.kind === 'sell') return 'cursor-sell';
+    if (this.tool.kind === 'improve') return 'cursor-build';
     if (this.tool.kind === 'trap' || this.tool.kind === 'door') return 'cursor-build';
     if (this.hoverCreature) return 'cursor-grab';
     return 'cursor-hand';

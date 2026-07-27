@@ -187,6 +187,17 @@ html, body {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  /*
+   * Wrap into a second column rather than overflowing the panel.
+   *
+   * Six buttons at 44px plus gaps is taller than the bottom panel, so adding the
+   * Improve tool pushed the last one off the bottom edge where it could not be
+   * clicked. Wrapping keeps every tool reachable and leaves room for the next
+   * one, instead of the rail silently swallowing whatever is added last.
+   */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  max-height: 100%;
   gap: 5px;
   padding: 6px;
 }

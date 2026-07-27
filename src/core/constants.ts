@@ -296,6 +296,9 @@ export const TREASURY_TILE_CAPACITY = 1000;
  * hand rather than a transport. Eight is about a warband.
  */
 export const HAND_CAPACITY = 8;
+
+/** How far a room can be improved. Three states are legible; five are noise. */
+export const ROOM_MAX_LEVEL = 3;
 /**
  * How much gold an imp hauls in one trip: exactly one seam.
  *
