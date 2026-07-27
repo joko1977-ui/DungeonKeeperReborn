@@ -36,6 +36,19 @@ export interface CreatureSpec {
   readonly appetite: number;
   /** Body scale relative to an imp. Drives the procedural model. */
   readonly scale: number;
+  /**
+   * Lair tiles this creature takes up, and how many others it therefore denies.
+   *
+   * A lair used to be one tile per creature whatever the creature was, so a
+   * nine-tile lair housed nine of anything — nine flies or nine dragons, same
+   * room. That makes the size of your roster the only thing that matters and
+   * quietly deletes a decision: a dragon should cost you a corner of the room,
+   * and the moment you take one on you should be able to see that there is no
+   * longer space for the rest.
+   *
+   * Zero for imps: they work until they drop and never claim a bed.
+   */
+  readonly lairSize: number;
   /** Primary skin colour of the generated model. */
   readonly color: number;
   /** Secondary colour: horns, wings, armour trim. */
@@ -50,62 +63,62 @@ export const CREATURE_SPECS: Record<CreatureType, CreatureSpec> = {
   [CreatureType.Imp]: S({
     type: CreatureType.Imp, name: 'Imp', maxHp: 60, strength: 4, defense: 2,
     speed: 3.4, wage: 0, flying: false, worker: true, jobs: [],
-    appetite: 900, scale: 0.62, color: 0xc41e3a, accent: 0x8b0000, attractedBy: null,
+    appetite: 900, scale: 0.62, color: 0xc41e3a, accent: 0x8b0000, attractedBy: null, lairSize: 0,
   }),
   [CreatureType.Fly]: S({
     type: CreatureType.Fly, name: 'Fly', maxHp: 50, strength: 6, defense: 2,
     speed: 4.2, wage: 25, flying: true, worker: false, jobs: [],
-    appetite: 700, scale: 0.5, color: 0x6f7f4a, accent: 0xc8d8a0, attractedBy: RoomType.Hatchery,
+    appetite: 700, scale: 0.5, color: 0x6f7f4a, accent: 0xc8d8a0, attractedBy: RoomType.Hatchery, lairSize: 1,
   }),
   [CreatureType.Beetle]: S({
     type: CreatureType.Beetle, name: 'Beetle', maxHp: 90, strength: 9, defense: 6,
     speed: 2.4, wage: 40, flying: false, worker: false, jobs: [RoomType.TrainingRoom],
-    appetite: 620, scale: 0.7, color: 0x4a3b2a, accent: 0x9a7b3a, attractedBy: RoomType.Lair,
+    appetite: 620, scale: 0.7, color: 0x4a3b2a, accent: 0x9a7b3a, attractedBy: RoomType.Lair, lairSize: 1,
   }),
   [CreatureType.Troll]: S({
     type: CreatureType.Troll, name: 'Troll', maxHp: 140, strength: 14, defense: 8,
     speed: 2.6, wage: 75, flying: false, worker: false,
     // Trolls are the ones who actually build the traps and doors.
     jobs: [RoomType.Workshop, RoomType.TrainingRoom],
-    appetite: 520, scale: 0.95, color: 0x5c7a4a, accent: 0x8fae6a, attractedBy: RoomType.TrainingRoom,
+    appetite: 520, scale: 0.95, color: 0x5c7a4a, accent: 0x8fae6a, attractedBy: RoomType.TrainingRoom, lairSize: 2,
   }),
   [CreatureType.DemonSpawn]: S({
     type: CreatureType.DemonSpawn, name: 'Demon Spawn', maxHp: 120, strength: 12, defense: 7,
     speed: 3.0, wage: 60, flying: false, worker: false, jobs: [RoomType.TrainingRoom],
-    appetite: 560, scale: 0.8, color: 0xa03a2a, accent: 0xe07a3a, attractedBy: RoomType.TrainingRoom,
+    appetite: 560, scale: 0.8, color: 0xa03a2a, accent: 0xe07a3a, attractedBy: RoomType.TrainingRoom, lairSize: 2,
   }),
   [CreatureType.Warlock]: S({
     type: CreatureType.Warlock, name: 'Warlock', maxHp: 110, strength: 10, defense: 5,
     speed: 2.8, wage: 90, flying: false, worker: false,
     jobs: [RoomType.Library, RoomType.TrainingRoom],
-    appetite: 600, scale: 0.85, color: 0x3f3a6a, accent: 0x8a7ad0, attractedBy: RoomType.Library,
+    appetite: 600, scale: 0.85, color: 0x3f3a6a, accent: 0x8a7ad0, attractedBy: RoomType.Library, lairSize: 1,
   }),
   [CreatureType.BileDemon]: S({
     type: CreatureType.BileDemon, name: 'Bile Demon', maxHp: 220, strength: 18, defense: 12,
     speed: 1.8, wage: 130, flying: false, worker: false,
     jobs: [RoomType.Workshop, RoomType.TrainingRoom],
-    appetite: 320, scale: 1.25, color: 0x7a8f3a, accent: 0xb8c85a, attractedBy: RoomType.Hatchery,
+    appetite: 320, scale: 1.25, color: 0x7a8f3a, accent: 0xb8c85a, attractedBy: RoomType.Hatchery, lairSize: 4,
   }),
   [CreatureType.Dragon]: S({
     type: CreatureType.Dragon, name: 'Dragon', maxHp: 260, strength: 24, defense: 14,
     speed: 3.2, wage: 180, flying: true, worker: false,
     jobs: [RoomType.TrainingRoom, RoomType.Library],
-    appetite: 400, scale: 1.35, color: 0xa8342a, accent: 0xf0a03a, attractedBy: RoomType.TrainingRoom,
+    appetite: 400, scale: 1.35, color: 0xa8342a, accent: 0xf0a03a, attractedBy: RoomType.TrainingRoom, lairSize: 9,
   }),
   [CreatureType.Dwarf]: S({
     type: CreatureType.Dwarf, name: 'Dwarf', maxHp: 90, strength: 10, defense: 6,
     speed: 2.8, wage: 0, flying: false, worker: true, jobs: [],
-    appetite: 900, scale: 0.7, color: 0xb08a5a, accent: 0x8a5a2a, attractedBy: null,
+    appetite: 900, scale: 0.7, color: 0xb08a5a, accent: 0x8a5a2a, attractedBy: null, lairSize: 1,
   }),
   [CreatureType.Archer]: S({
     type: CreatureType.Archer, name: 'Archer', maxHp: 100, strength: 13, defense: 5,
     speed: 3.2, wage: 0, flying: false, worker: false, jobs: [],
-    appetite: 900, scale: 0.82, color: 0x3a6a4a, accent: 0xd8c88a, attractedBy: null,
+    appetite: 900, scale: 0.82, color: 0x3a6a4a, accent: 0xd8c88a, attractedBy: null, lairSize: 1,
   }),
   [CreatureType.Knight]: S({
     type: CreatureType.Knight, name: 'Knight', maxHp: 240, strength: 22, defense: 16,
     speed: 2.6, wage: 0, flying: false, worker: false, jobs: [],
-    appetite: 900, scale: 1.0, color: 0xc0c6d0, accent: 0x2a4a8a, attractedBy: null,
+    appetite: 900, scale: 1.0, color: 0xc0c6d0, accent: 0x2a4a8a, attractedBy: null, lairSize: 4,
   }),
 };
 

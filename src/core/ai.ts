@@ -52,10 +52,14 @@ export interface AIWorld {
   foodOf(owner: Owner): number;
   consumeFood(owner: Owner): boolean;
 
-  /** Lair bookkeeping — one nest per creature. */
-  claimLair(creature: Creature, tile: number): void;
+  /** Lair bookkeeping — one nest per creature, as many tiles as it needs. */
+  claimLair(creature: Creature, tiles: readonly number[]): void;
   releaseLair(creature: Creature): void;
   isLairFree(tile: number): boolean;
+  /** A clump of free lair tiles big enough for this creature, or empty. */
+  findLairFor(creature: Creature, x: number, y: number): number[];
+  /** Can this creature have that room tile to itself? */
+  isWorkTileFree(tile: number, forCreature: Creature): boolean;
 
   addResearch(owner: Owner, points: number): void;
   /**
@@ -80,6 +84,8 @@ export interface AIWorld {
   /** Tile this keeper's creatures have been called to, or -1. */
   rallyTile(owner: Owner): number;
   notify(message: string, cue?: string): void;
+  /** Notify, but at most occasionally — for things noticed every think. */
+  warn(message: string, key: string, cue?: string): void;
   /** Fire off a one-shot visual: 'dig' | 'claim' | 'hit' | 'gold' | 'sleep' | 'poof'. */
   effect(kind: string, x: number, y: number): void;
   onCreatureDied(creature: Creature): void;
@@ -749,6 +755,23 @@ function thinkCreature(world: AIWorld, c: Creature): void {
     }
   }
 
+  /*
+   * Claim a nest as soon as one exists, long before needing it.
+   *
+   * Reserving a bed only at the moment of exhaustion made the loyalty penalty
+   * for having no lair fire on every creature in the dungeon, including ones
+   * that had simply not been tired yet — so a keeper with a perfectly good empty
+   * lair still watched his roster resign. A creature books its bed on arrival,
+   * the way anybody would, and only the ones that genuinely cannot get one are
+   * unhappy about it.
+   *
+   * Claiming does not mean walking there. It means the space is spoken for.
+   */
+  if (spec.lairSize > 0 && c.lairTile < 0) {
+    const nest = world.findLairFor(c, ix, iy);
+    if (nest.length > 0) world.claimLair(c, nest);
+  }
+
   // Tired or hurt: go to bed.
   if (c.tiredness > 70 || c.hp < maxHpOf(c) * 0.4) {
     if (c.lairTile >= 0 && map.roomAt(map.xOf(c.lairTile), map.yOf(c.lairTile)) === RoomType.Lair) {
@@ -758,18 +781,31 @@ function thinkCreature(world: AIWorld, c: Creature): void {
         return;
       }
     }
-    const lair = nearestRoomTile(
-      map, world.rooms, c.owner, RoomType.Lair, ix, iy,
-      (t) => world.isLairFree(t),
-    );
-    if (lair >= 0 && setPathTo(world, c, lair)) {
-      world.claimLair(c, lair);
+    const nest = world.findLairFor(c, ix, iy);
+    if (nest.length > 0 && setPathTo(world, c, nest[0])) {
+      world.claimLair(c, nest);
       c.state = CreatureState.Walking;
-      c.targetTile = lair;
+      c.targetTile = nest[0];
       return;
     }
-    // No bed available: that's what makes creatures angry.
-    c.anger = Math.min(100, c.anger + 6);
+    /*
+     * A sting for turning in and finding no bed, on top of the slow drain.
+     *
+     * It used to be six points every time it looked, which stacked several times
+     * a second once a creature was tired — a bedless creature went from content
+     * to walking out inside a minute and a half, before the keeper could
+     * plausibly dig the room. The steady drain is the real pressure now; this is
+     * only the extra bite of being tired as well as homeless.
+     */
+    c.anger = Math.min(100, c.anger + 0.15);
+    if (c.owner === Owner.Player) {
+      const spec2 = CREATURE_SPECS[c.type];
+      world.warn(
+        spec2.lairSize > 1
+          ? `Your ${spec2.name} needs ${spec2.lairSize} lair tiles to itself and cannot find them.`
+          : 'Your creatures have nowhere to sleep. Build a lair.',
+        'no-lair', 'no-lair');
+    }
   }
 
   // Heroes came down here to do something. Left to the code below they had no
@@ -810,15 +846,37 @@ function thinkCreature(world: AIWorld, c: Creature): void {
   // go looking for the heart.
   if (siegeEnemyHeart(world, c)) return;
 
-  // Otherwise, do the job this creature is here for.
+  /*
+   * Otherwise, do the job this creature is here for — if there is room.
+   *
+   * Every creature used to head for the *nearest* tile of a job room, which
+   * meant a whole warband could pile onto one square of a three-by-three
+   * training room and all train at once. The room's size then bought you
+   * nothing at all, which is a strange thing for a building you paid for by the
+   * tile: a bigger training room should train more creatures, and a full one
+   * should be visibly full so you know to build another.
+   *
+   * One creature per tile, so a nine-tile room trains nine and the tenth stands
+   * about until somebody finishes or you extend the room.
+   */
+  let jobRoomWasFull = false;
   for (const job of spec.jobs) {
     if (job === RoomType.TrainingRoom && world.goldOf(c.owner) < 50) continue;
-    const tile = nearestRoomTile(map, world.rooms, c.owner, job, ix, iy);
+    const tile = nearestRoomTile(
+      map, world.rooms, c.owner, job, ix, iy,
+      (t) => world.isWorkTileFree(t, c),
+    );
     if (tile >= 0 && setPathTo(world, c, tile)) {
       c.state = CreatureState.Walking;
       c.targetTile = tile;
       return;
     }
+    // The room exists but every square of it is taken.
+    if (tile < 0 && world.rooms.count(map, c.owner, job) > 0) jobRoomWasFull = true;
+  }
+  if (jobRoomWasFull && c.owner === Owner.Player) {
+    world.warn('Your creatures are queueing for a room — build a bigger one.',
+      'room-crowded', 'room-crowded');
   }
 
   wander(world, c);
@@ -934,6 +992,25 @@ export function updateCreature(world: AIWorld, c: Creature, dt: number): void {
     if (c.state !== CreatureState.Sleeping) c.tiredness = Math.min(100, c.tiredness + 0.035);
     if (c.hunger > 90 || c.tiredness > 95) c.anger = Math.min(100, c.anger + 0.05);
     else if (c.anger > 0 && c.state === CreatureState.Sleeping) c.anger = Math.max(0, c.anger - 0.08);
+    /*
+     * A creature with nowhere to sleep resents you for it, continuously.
+     *
+     * The old rule only bit at the moment an exhausted creature went looking for
+     * a bed and found none, so a keeper who never built a lair at all paid
+     * almost nothing for it until very late. Somewhere to sleep is the first
+     * thing a creature wants from an employer; not having it should be a slow,
+     * constant drain on loyalty from the day it arrives, not a surprise at the
+     * end of a long shift.
+     */
+    if (spec.lairSize > 0 && c.lairTile < 0) {
+      /*
+       * Slow on purpose. A creature books a bed the moment one is free, so
+       * reaching this at all means the dungeon genuinely has no room for it —
+       * and that should be a pressure that builds over minutes, giving the
+       * keeper time to notice and dig, rather than a countdown to a walkout.
+       */
+      c.anger = Math.min(100, c.anger + 0.012);
+    }
     // Starving creatures waste away.
     if (c.hunger >= 100) c.hp -= maxHpOf(c) * 0.0008;
     if (c.hp <= 0) {

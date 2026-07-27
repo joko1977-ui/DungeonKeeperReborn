@@ -796,6 +796,151 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
+/* -- rooms have room for only so many ------------------------------------- */
+
+{
+  const g = generateLevel({ seed: 4141 });
+  const gm = g.map;
+  const gs = g.startView();
+
+  /*
+   * Clear the lair the level generator gives you first.
+   *
+   * Without this the test measures nothing: eleven flies housed in a nine-tile
+   * room looked like a capacity bug, and was in fact two of them walking off to
+   * sleep in the starting dungeon's own lair on the other side of the map.
+   */
+  for (let i = 0; i < gm.room.length; i++) {
+    if (gm.room[i] === RoomType.Lair) gm.room[i] = RoomType.None;
+  }
+
+  // A three-by-three lair, laid by hand so its size is known exactly.
+  const lx = gs.x + 4, ly = gs.y + 4;
+  for (let y = ly; y < ly + 3; y++) {
+    for (let x = lx; x < lx + 3; x++) {
+      gm.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      gm.room[gm.idx(x, y)] = RoomType.Lair;
+    }
+  }
+
+  const beds = (): number => {
+    let n = 0;
+    for (let y = ly; y < ly + 3; y++) {
+      for (let x = lx; x < lx + 3; x++) if (!g.isLairFree(gm.idx(x, y))) n++;
+    }
+    return n;
+  };
+
+  // Nine flies, one tile each: the room holds exactly nine.
+  const flies = [];
+  for (let i = 0; i < 11; i++) {
+    const f = createCreature(CreatureType.Fly, Owner.Player, lx, ly);
+    g.creatures.push(f);
+    flies.push(f);
+  }
+  run(400, g);
+  const housed = flies.filter((f) => f.lairTile >= 0).length;
+  check('a nine-tile lair sleeps nine small creatures', housed === 9, { housed, beds: beds() });
+  check('and the two left over get no bed at all', flies.length - housed === 2);
+
+  /*
+   * Now clear it and put one dragon in. It needs nine tiles, so it takes the
+   * whole room and nobody else gets in — which is the entire point of giving a
+   * creature a footprint.
+   */
+  for (const f of flies) g.releaseLair(f);
+  g.creatures.length = 0;
+  const dragon = createCreature(CreatureType.Dragon, Owner.Player, lx, ly);
+  g.creatures.push(dragon);
+  const lodger = createCreature(CreatureType.Fly, Owner.Player, lx, ly);
+  g.creatures.push(lodger);
+  run(400, g);
+  check('a dragon takes a whole nine-tile lair to itself',
+    dragon.lairTile >= 0 && beds() === 9, { beds: beds() });
+  check('and nothing else can bed down in it', lodger.lairTile < 0);
+
+  /*
+   * A bedless creature resents you more than a housed one.
+   *
+   * Measured as a difference between two identical creatures rather than as an
+   * absolute number, because anger has other sources and one of them dwarfed
+   * this: the first version of this check put a lone creature in a dungeon with
+   * no hatchery and watched it reach breaking point in ninety seconds, which was
+   * almost entirely starvation. Comparing like with like isolates the lair.
+   */
+  g.creatures.length = 0;
+  const spare = gm.idx(lx - 3, ly);
+  gm.setTerrain(lx - 3, ly, Terrain.Claimed, Owner.Player);
+  gm.room[spare] = RoomType.Lair;
+
+  /*
+   * Feed them, or the test measures starvation.
+   *
+   * Hunger drives anger far harder than a missing bed does, and in a dungeon
+   * with no hatchery it swamps the signal completely — the first version of this
+   * had the *housed* creature angrier than the homeless one, because the
+   * homeless one had already starved to the point of walking out and stopped
+   * accumulating. With a full larder, the lair is the only thing left that
+   * differs between them.
+   */
+  for (let y = ly - 4; y < ly - 1; y++) {
+    for (let x = lx - 4; x < lx - 1; x++) {
+      gm.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      gm.room[gm.idx(x, y)] = RoomType.Hatchery;
+    }
+  }
+  g.keeper(Owner.Player).food = 500;
+
+  const housedFly = createCreature(CreatureType.Fly, Owner.Player, lx - 3, ly);
+  const homeless = createCreature(CreatureType.Fly, Owner.Player, lx - 3, ly);
+  g.creatures.push(housedFly, homeless);
+  run(60, g);
+  check('the one bed goes to one of them',
+    (housedFly.lairTile >= 0) !== (homeless.lairTile >= 0),
+    { a: housedFly.lairTile, b: homeless.lairTile });
+
+  const withBed = housedFly.lairTile >= 0 ? housedFly : homeless;
+  const without = housedFly.lairTile >= 0 ? homeless : housedFly;
+  run(2500, g);
+  check('the one without a bed is angrier than the one with',
+    without.anger > withBed.anger,
+    { without: Number(without.anger.toFixed(1)), with: Number(withBed.anger.toFixed(1)) });
+  check('and it is a real gap, not rounding',
+    without.anger - withBed.anger > 10,
+    { gap: Number((without.anger - withBed.anger).toFixed(1)) });
+
+  // Work rooms: one creature to a tile.
+  const tx = gs.x - 6, ty = gs.y + 4;
+  for (let y = ty; y < ty + 2; y++) {
+    for (let x = tx; x < tx + 2; x++) {
+      gm.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      gm.room[gm.idx(x, y)] = RoomType.TrainingRoom;
+    }
+  }
+  g.creatures.length = 0;
+  g.keeper(Owner.Player).gold = 20000;
+  const trainees = [];
+  for (let i = 0; i < 8; i++) {
+    const t = createCreature(CreatureType.Troll, Owner.Player, tx, ty);
+    t.tiredness = 0;
+    g.creatures.push(t);
+    trainees.push(t);
+  }
+  run(1200, g);
+  const onTiles = new Map<number, number>();
+  for (const t of trainees) {
+    if (t.state !== CreatureState.Training) continue;
+    const k = gm.idx(Math.round(t.x), Math.round(t.y));
+    onTiles.set(k, (onTiles.get(k) ?? 0) + 1);
+  }
+  check('a training room takes one creature to a tile',
+    [...onTiles.values()].every((n) => n === 1),
+    { tiles: onTiles.size, busiest: Math.max(0, ...onTiles.values()) });
+  check('and a four-tile room cannot train eight at once',
+    [...onTiles.values()].reduce((a, b) => a + b, 0) <= 4,
+    { training: [...onTiles.values()].reduce((a, b) => a + b, 0) });
+}
+
 /* -- a full vault stops the mining ---------------------------------------- */
 
 {

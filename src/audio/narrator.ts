@@ -83,6 +83,14 @@ const LINES: Record<NarrationCue, string[]> = {
     'Your treasury is full. Gold is going to waste. Build.',
     'There is nowhere left to put the gold. Think about that.',
   ],
+  'room-crowded': [
+    'Your creatures are queueing. A larger room would fix that.',
+    'They cannot all use one square of floor. Build more.',
+  ],
+  'no-lair': [
+    'Nowhere to sleep. They will remember this at payday.',
+    'Your creatures have no beds. Their loyalty is not free.',
+  ],
   heroes: [
     'Heroes. They have come to be reasonable at you. Kill them.',
     'The forces of good are here, radiating virtue. Stop them.',
@@ -149,6 +157,8 @@ const CUE_COOLDOWN: Partial<Record<NarrationCue, number>> = {
   'bad-placement': 12000,
   'no-mana': 15000,
   'treasury-full': 40000,
+  'room-crowded': 45000,
+  'no-lair': 45000,
   'creature-left': 20000,
   manufactured: 20000,
   'objective-done': 6000,

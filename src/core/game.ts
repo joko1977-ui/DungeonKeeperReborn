@@ -75,7 +75,8 @@ export type NarrationCue =
   | 'creature-levelled' | 'payday' | 'payday-broke' | 'treasury-full'
   | 'heroes' | 'victory' | 'defeat' | 'no-mana' | 'bad-placement'
   | 'manufactured' | 'trap-fired' | 'door-broken'
-  | 'objective-done' | 'lord-approaching' | 'lord-slain' | 'keeper-defeated';
+  | 'objective-done' | 'lord-approaching' | 'lord-slain' | 'keeper-defeated'
+  | 'room-crowded' | 'no-lair';
 
 /** A line in the message log, shown in the panel like the original's ticker. */
 export interface GameMessage {
@@ -126,6 +127,15 @@ const SIEGE_DIG_RATE = 1.1;
 
 /** How long a Call to Arms flag stands before creatures drift back to work. */
 const RALLY_SECONDS = 150;
+
+/** States in which a creature is occupying the tile it stands on. */
+const WORKING_STATES: ReadonlySet<CreatureState> = new Set([
+  CreatureState.Training,
+  CreatureState.Researching,
+  CreatureState.Manufacturing,
+  CreatureState.Sleeping,
+  CreatureState.Eating,
+]);
 
 export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   readonly map: TileMap;
@@ -254,23 +264,102 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     return true;
   }
 
-  claimLair(creature: Creature, tile: number): void {
+  /**
+   * Reserve a creature's whole nest, not one square of it.
+   *
+   * A lair held one tile per creature whatever the creature was, so nine tiles
+   * housed nine of anything — nine flies or nine dragons, the same room. That
+   * makes the size of your roster the only thing that matters and quietly
+   * deletes a decision. A dragon takes a corner of the room now, and the moment
+   * you take one on you can see there is no longer space for the rest.
+   */
+  claimLair(creature: Creature, tiles: readonly number[]): void {
     this.releaseLair(creature);
-    this.lairClaims.set(tile, creature.id);
-    creature.lairTile = tile;
+    if (tiles.length === 0) return;
+    for (const t of tiles) this.lairClaims.set(t, creature.id);
+    creature.lairTile = tiles[0];
   }
 
   releaseLair(creature: Creature): void {
-    if (creature.lairTile >= 0) {
-      if (this.lairClaims.get(creature.lairTile) === creature.id) {
-        this.lairClaims.delete(creature.lairTile);
-      }
-      creature.lairTile = -1;
+    if (creature.lairTile < 0) return;
+    for (const [tile, id] of this.lairClaims) {
+      if (id === creature.id) this.lairClaims.delete(tile);
     }
+    creature.lairTile = -1;
   }
 
   isLairFree(tile: number): boolean {
     return !this.lairClaims.has(tile);
+  }
+
+  /**
+   * Find a nest big enough for this creature, or nothing.
+   *
+   * The tiles have to touch: a dragon sprawled across four corners of the room
+   * is not a nest, and a keeper looking at a lair should be able to see which
+   * block of it belongs to which beast. So this grows a clump outward from a
+   * free tile through its free neighbours, and only reports success when the
+   * clump reaches the size the creature needs.
+   */
+  findLairFor(creature: Creature, x: number, y: number): number[] {
+    const need = CREATURE_SPECS[creature.type].lairSize;
+    if (need <= 0) return [];
+    const owner = creature.owner;
+    const all = this.rooms.tilesOf(this.map, owner, RoomType.Lair)
+      .filter((t) => this.isLairFree(t));
+    if (all.length < need) return [];
+
+    const free = new Set(all);
+    // Nearest free tile first, so a creature beds down where it is standing
+    // rather than crossing the dungeon to an equally good corner.
+    const seeds = [...all].sort((a, b) =>
+      ((this.map.xOf(a) - x) ** 2 + (this.map.yOf(a) - y) ** 2)
+      - ((this.map.xOf(b) - x) ** 2 + (this.map.yOf(b) - y) ** 2));
+
+    for (const seed of seeds) {
+      const clump: number[] = [seed];
+      const seen = new Set<number>([seed]);
+      const queue = [seed];
+      while (queue.length > 0 && clump.length < need) {
+        const t = queue.shift()!;
+        const tx = this.map.xOf(t), ty = this.map.yOf(t);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (clump.length >= need) break;
+          const nx = tx + dx, ny = ty + dy;
+          if (!this.map.inBounds(nx, ny)) continue;
+          const n = this.map.idx(nx, ny);
+          if (seen.has(n) || !free.has(n)) continue;
+          seen.add(n);
+          clump.push(n);
+          queue.push(n);
+        }
+      }
+      if (clump.length >= need) return clump;
+    }
+    return [];
+  }
+
+  /**
+   * Is a work tile free for this creature to stand on?
+   *
+   * Worked out from where everyone is and what they are heading for, rather than
+   * from a reservation table. A table needs releasing on every path out of every
+   * state — death, being picked up, changing its mind — and one missed release
+   * leaks a tile of the room forever. This cannot leak: it is derived from the
+   * creatures that exist right now.
+   */
+  isWorkTileFree(tile: number, forCreature: Creature): boolean {
+    const wx = this.map.xOf(tile), wy = this.map.yOf(tile);
+    for (const other of this.creatures) {
+      if (other.id === forCreature.id || other.inHand) continue;
+      if (other.state === CreatureState.Dying) continue;
+      if (other.targetTile === tile) return false;
+      // Somebody already at work on it, whether or not they still call it their
+      // target.
+      if (WORKING_STATES.has(other.state)
+        && Math.round(other.x) === wx && Math.round(other.y) === wy) return false;
+    }
+    return true;
   }
 
   addResearch(owner: Owner, points: number): void {
@@ -440,6 +529,18 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
 
   private lastNotified = new Map<string, number>();
   /** Notify at most once every 15 seconds per key, so nags don't spam the log. */
+  /**
+   * A warning the behaviour code can raise as often as it likes.
+   *
+   * The AI notices things like a full training room on every think, for every
+   * creature — several times a second across the roster. Routing that through
+   * the plain notifier would bury the message log under one line per creature
+   * per tick, so it goes through the throttle and says its piece once.
+   */
+  warn(message: string, key: string, cue?: string): void {
+    this.notifyThrottled(message, key, cue as NarrationCue | undefined);
+  }
+
   private notifyThrottled(message: string, key: string, cue?: NarrationCue): void {
     const last = this.lastNotified.get(key) ?? -Infinity;
     if (this.tickCount - last < TICKS_PER_SECOND * 15) return;
