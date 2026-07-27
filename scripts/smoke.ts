@@ -778,36 +778,60 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
-/* -- the hoard has detail without blowing the budget ---------------------- */
+/* -- the hoard is stacked, not heaped ------------------------------------- */
 
 {
-  const props = await import('../src/render/roomProps');
-  const tiers = [
-    ['loose change', props.buildCoinScatter()],
-    ['a heap', props.buildGoldHeap()],
-    ['a hoard', props.buildGoldHoard()],
-  ] as const;
+  const { HOARD_TIERS } = await import('../src/render/roomProps');
+  const names = ['small change', 'stacks', 'bars', 'barrels'];
+  check('the hoard has four tiers', HOARD_TIERS.length === 4, HOARD_TIERS.length);
 
   let previous = 0;
-  for (const [name, geo] of tiers) {
-    const verts = geo.attributes.position.count;
-    // Detail is the whole point, so there has to be enough of it — the shape it
-    // replaced was four stacked discs and about two hundred vertices.
-    check(`${name} is built from more than a few blobs`, verts > 400, { verts });
-    // But a treasury can be ninety tiles, and every one of them is an instance.
+  for (let tier = 0; tier < HOARD_TIERS.length; tier++) {
+    const name = names[tier];
+    // Both builds of a tier exist and differ, or every tile of a full vault
+    // wears the identical arrangement and the repeat is the loudest thing in
+    // the room.
+    const a = HOARD_TIERS[tier](0);
+    const b = HOARD_TIERS[tier](1);
+    const verts = a.attributes.position.count;
+    check(`${name} is built from real parts`, verts > 400, { verts });
+    // A treasury can be ninety tiles, and every one of them is an instance.
     check(`${name} stays inside the instancing budget`, verts < 6000, { verts });
-    check(`${name} has more in it than the tier below`, verts > previous, { verts });
-    previous = verts;
+    /*
+     * Progression is measured in height, not vertices.
+     *
+     * Vertex count is the wrong proxy and said so: the bar tier is visually
+     * richer than the stacks below it and geometrically *cheaper*, because a
+     * cast bar is a box and a stack of coins is nine cylinders. What has to
+     * grow is what the player sees — each tier stands taller than the last.
+     */
+    a.computeBoundingBox();
+    const top = a.boundingBox!.max.y;
+    check(`${name} stands taller than the tier below`, top > previous,
+      { top: Number(top.toFixed(3)), below: Number(previous.toFixed(3)) });
+    previous = top;
 
-    geo.computeBoundingBox();
-    const box = geo.boundingBox!;
-    // It has to sit on the tile it belongs to and stay on the floor: a pile that
-    // sank would leave a ring of coins round a hole, and one that overhung would
-    // poke through the kerb of the room next door.
-    check(`${name} sits on the floor`, box.min.y > -0.05, Number(box.min.y.toFixed(3)));
-    check(`${name} stays on its own tile`,
-      Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z) < 0.5,
-      Number(Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z).toFixed(3)));
+    const posA = a.attributes.position.array as ArrayLike<number>;
+    const posB = b.attributes.position.array as ArrayLike<number>;
+    let differs = posA.length !== posB.length;
+    if (!differs) {
+      for (let i = 0; i < posA.length; i += 97) {
+        if (Math.abs(posA[i] - posB[i]) > 1e-4) { differs = true; break; }
+      }
+    }
+    check(`${name} has two different builds`, differs);
+
+    for (const [label, geo] of [['', a], [' (mirrored)', b]] as const) {
+      geo.computeBoundingBox();
+      const box = geo.boundingBox!;
+      // It has to stand on the tile it belongs to: sunk gold leaves a ring
+      // around a hole, and an overhang pokes through the neighbouring kerb.
+      check(`${name}${label} stands on the floor`, box.min.y > -0.04,
+        Number(box.min.y.toFixed(3)));
+      check(`${name}${label} stays on its own tile`,
+        Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z) < 0.5,
+        Number(Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z).toFixed(3)));
+    }
   }
 }
 
