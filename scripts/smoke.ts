@@ -849,6 +849,38 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     { was: before, now: after });
 }
 
+/* -- things that sit on a block sit on its own top ------------------------ */
+
+{
+  const { wallTopAt, WALL_HEIGHT } = await import('../src/render/terrain');
+  const g = generateLevel({ seed: 777 });
+  const gm = g.map;
+
+  const tops: number[] = [];
+  for (let i = 0; i < gm.terrain.length && tops.length < 400; i++) {
+    if (gm.terrain[i] === Terrain.Earth) tops.push(wallTopAt(gm, i));
+  }
+  check('a floor tile has no block on it',
+    wallTopAt(gm, gm.idx(g.startView().x, g.startView().y)) === 0);
+  check('blocks stand at different heights',
+    new Set(tops.map((t) => t.toFixed(3))).size > 20, { sampled: tops.length });
+
+  /*
+   * This is the bug, stated as a test.
+   *
+   * The excavation tag used to be placed at a flat WALL_HEIGHT, so every block
+   * that happened to roll taller than that swallowed it and the wall looked
+   * untagged. A third of them do. Anything sitting on a block has to ask the
+   * block how tall it is.
+   */
+  const tallerThanNominal = tops.filter((t) => t > WALL_HEIGHT).length;
+  check('and a good share of them stand above the nominal height',
+    tallerThanNominal > tops.length * 0.2,
+    { taller: tallerThanNominal, of: tops.length });
+  check('but none of them is impossibly tall',
+    tops.every((t) => t > 0 && t < WALL_HEIGHT * 1.1));
+}
+
 /* -- the hoard is stacked, not heaped ------------------------------------- */
 
 {

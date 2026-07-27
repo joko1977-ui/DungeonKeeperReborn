@@ -12,6 +12,7 @@ import { DeviceRenderer } from './render/deviceRenderer';
 import { Atmosphere } from './render/atmosphere';
 import { DungeonDressing } from './render/dressing';
 import { LandmarkRenderer } from './render/landmarks';
+import { ImpFlow } from './render/impFlow';
 import { RoomShell } from './render/roomShell';
 import { SurveyView } from './render/surveyView';
 import { ThreatPath } from './render/threatPath';
@@ -56,6 +57,7 @@ const dressing = new DungeonDressing(game.map);
 const threat = new ThreatPath(game.map, game.rooms);
 const survey = new SurveyView(game.map);
 const roomShell = new RoomShell(game.map);
+const impFlow = new ImpFlow(game.map);
 const atmosphere = new Atmosphere();
 const lavaGlow = new LavaGlow(game.map);
 const torches = new TorchSystem(game.map);
@@ -70,6 +72,7 @@ rig.scene.add(dressing.group);
 rig.scene.add(threat.group);
 rig.scene.add(survey.group);
 rig.scene.add(roomShell.group);
+rig.scene.add(impFlow.group);
 rig.scene.add(atmosphere.group);
 rig.scene.add(lavaGlow.group);
 rig.scene.add(torches.group);
@@ -187,6 +190,9 @@ helpButton.addEventListener('click', () => showBriefing(uiRoot!, () => {
  */
 function setSurvey(on: boolean): void {
   survey.setEnabled(on);
+  // The imps' traffic rides the same switch. It answers the other half of the
+  // same question — the plan is where to dig, this is who is already on the way.
+  impFlow.setEnabled(on);
   surveyButton.classList.toggle('is-off', !on);
   surveyButton.textContent = on ? 'Dig plan' : 'Dig plan off';
 }
@@ -256,6 +262,9 @@ function frame(): void {
   threat.update(time, game.waveImminence());
   if (survey.enabled) survey.syncIfDirty(game.survey());
   survey.update(time);
+  // Live traffic, not a plan: rebuilt every frame off the paths the imps are
+  // actually walking, so it costs nothing to keep in step with them.
+  impFlow.update(game.creatures, time);
   landmarks.update(time, camera.getDistance());
   atmosphere.update(dt, camera.target, time);
   lavaGlow.syncIfDirty();
@@ -373,7 +382,7 @@ window.dk = { game, camera, rig, audio, narrator, director };
 window.dk.groups = {
   terrain: terrain.group, roomProps: roomProps.group, devices: devices.group,
   landmarks: landmarks.group, dressing: dressing.group, threat: threat.group,
-  survey: survey.group, roomShell: roomShell.group,
+  survey: survey.group, roomShell: roomShell.group, impFlow: impFlow.group,
   atmosphere: atmosphere.group, lavaGlow: lavaGlow.group,
   torches: torches.group, particles: particles.points, creatures: creatureRenderer.group,
   hand: hand.group,
@@ -404,6 +413,7 @@ if (import.meta.hot) {
     threat.dispose();
     survey.dispose();
     roomShell.dispose();
+    impFlow.dispose();
     atmosphere.dispose();
     lavaGlow.dispose();
     creatureRenderer.dispose();

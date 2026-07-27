@@ -56,7 +56,9 @@ export function showBriefing(
         <dt>Tall blue-black rock</dt><dd>Bedrock. Nothing digs it — it is the edge of the world</dd>
         <dt>Orange arrows</dt><dd>The way the heroes will come. Put your traps and doors on it</dd>
         <dt>Coloured wedges</dt><dd>The dig plan: the blocks to cut through to reach what the compass is pointing at, in that thing's own colour. The big arrow is where it leaves ground you have seen</dd>
-        <dt>Hovering crystals</dt><dd>A seam you have found — gold, or blue-white for gems</dd>
+        <dt>Marks on the stone</dt><dd>A seam you have found — gold, or blue-white for gems</dd>
+        <dt>Green arrows</dt><dd>Your imps' traffic, sliding along the route each one is walking. They turn gold when the imp is carrying a load home</dd>
+        <dt>Yellow diamonds</dt><dd>Walls you have tagged for excavation. They sit above everything else on the block, so an order is never hidden by an overlay</dd>
         <dt>Shafts of light</dt><dd>A Dungeon Heart or a portal, in its owner's colour</dd>
         <dt>Heroes in…</dt><dd>The raid clock, top right. It turns red when the wave is close</dd>
       </dl>

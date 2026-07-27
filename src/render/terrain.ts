@@ -29,6 +29,30 @@ const FLOOR_ROCK = 0, FLOOR_FLAGSTONE = 1, FLOOR_TREASURY = 2, FLOOR_LAIR = 3,
 
 export const WALL_HEIGHT = 1.15;
 
+/**
+ * How tall the block on a solid tile actually stands.
+ *
+ * Natural rock is given a few percent of height variation so a field of it does
+ * not read as one extruded mass, which means "the top of that block" is a
+ * different number for every tile. Anything that wants to sit *on* a block has
+ * to ask, and until this existed nothing could: the excavation tag was placed at
+ * a flat WALL_HEIGHT + 0.02, so every block that happened to roll taller than
+ * average — a good third of them — swallowed its own marker, and the player got
+ * walls that were tagged and did not look it.
+ */
+export function wallTopAt(map: TileMap, tile: number): number {
+  const terrain = map.terrain[tile] as Terrain;
+  if (!isSolid(terrain)) return 0;
+  return wallHeightFactor(tile, terrain) * WALL_HEIGHT;
+}
+
+/** The vertical scale applied to a solid tile's block. */
+function wallHeightFactor(tile: number, terrain: Terrain): number {
+  if (terrain === Terrain.Rock) return 1.42;
+  if (terrain === Terrain.Wall) return 1;
+  return 0.92 + tileNoise(tile, 1) * 0.16;
+}
+
 /** Deterministic per-tile noise in [0,1), for shape and shade variation. */
 function tileNoise(tile: number, salt: number): number {
   let t = (tile * 374761393) ^ (salt * 668265263);
@@ -540,7 +564,8 @@ export class TerrainRenderer {
     this.markMesh = new THREE.InstancedMesh(markGeo, this.markMaterial, capacity);
     this.markMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.markMesh.frustumCulled = false;
-    this.markMesh.renderOrder = 2;
+    // Above the survey overlay, which draws at 4 on the same block tops.
+    this.markMesh.renderOrder = 6;
 
     this.wallInstanceTile = new Int32Array(capacity).fill(-1);
     this.floorInstanceTile = new Int32Array(capacity).fill(-1);
@@ -594,8 +619,8 @@ export class TerrainRenderer {
            * it, and you can see at a glance where the map ends.
            */
           const bedrock = terrain === Terrain.Rock;
-          const h = bedrock ? 1.42
-            : dressed ? 1 : 0.92 + tileNoise(i, 1) * 0.16;
+          // One source for this, shared with anything that sits on top of it.
+          const h = wallHeightFactor(i, terrain);
           const spin = dressed ? 0 : (Math.floor(tileNoise(i, 2) * 4) * Math.PI) / 2;
           dummy.position.set(x, 0, y);
           dummy.rotation.set(0, spin, 0);
@@ -623,9 +648,16 @@ export class TerrainRenderer {
           this.wallInstanceTile[wallN] = i;
           wallN++;
 
-          // Excavation tag, floating just above the block.
+          /*
+           * Excavation tag, riding this block's own top.
+           *
+           * High enough to clear the dig plan's markers as well, which lie on
+           * the same block faces: the tag is the player's own order coming back
+           * to them, and an overlay explaining where they might dig must never
+           * cover the record of where they have said to.
+           */
           if ((map.flags[i] & 1) !== 0) {
-            dummy.position.set(x, WALL_HEIGHT + 0.02, y);
+            dummy.position.set(x, h * WALL_HEIGHT + 0.17, y);
             dummy.updateMatrix();
             this.markMesh.setMatrixAt(markN, dummy.matrix);
             markN++;

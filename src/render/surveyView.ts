@@ -3,7 +3,7 @@ import { Terrain, isSolid } from '../core/constants';
 import { Survey } from '../core/survey';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
-import { WALL_HEIGHT } from './terrain';
+import { wallTopAt } from './terrain';
 
 /**
  * The dig plan, drawn on the walls.
@@ -147,13 +147,18 @@ export class SurveyView {
     return true;
   }
 
-  /** A marker's height: on top of a block, or just off the floor. */
+  /**
+   * A marker's height: on this block's own top, or just off the floor.
+   *
+   * Every block is a slightly different height, so a fixed number put half the
+   * markers inside the rock and left the other half hovering. Asking the terrain
+   * is the only way these stay put, and it means the dig tag — which sits higher
+   * again — reliably clears them.
+   */
   private heightAt(tile: number): number {
     const terrain = this.map.terrain[tile] as Terrain;
     if (!isSolid(terrain)) return 0.06;
-    // Bedrock stands taller than the rest, but no route ever crosses it, so the
-    // diggable heights are the only ones that need clearing.
-    return WALL_HEIGHT * 1.12;
+    return wallTopAt(this.map, tile) + 0.02;
   }
 
   private rebuild(survey: Survey): void {
@@ -237,7 +242,7 @@ export class SurveyView {
       colour.setHex(seam.gems ? 0x63c6dd : 0xd8a232);
       this.seamAt.push({
         // Just clear of the block's own top face, so it sits on the stone.
-        x: map.xOf(tile), y: map.yOf(tile), z: WALL_HEIGHT * 1.12 + 0.02,
+        x: map.xOf(tile), y: map.yOf(tile), z: this.heightAt(tile),
       });
       this.seamMarks.setColorAt(this.seamCount, colour);
       this.seamCount++;
