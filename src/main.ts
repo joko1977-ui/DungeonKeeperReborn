@@ -240,9 +240,13 @@ function frame(): void {
   terrain.update(time);
   roomProps.syncIfDirty();
   roomShell.syncIfDirty();
-  // Gold heaps grow as the vault fills, so a treasury reads at a glance.
-  const cap = game.treasuryCap();
-  roomProps.setGoldFill(cap > 0 ? game.goldOf(Owner.Player) / cap : 0);
+  // Rooms show what they hold: the hoard spreads across the vault floor, and
+  // every other room stocks up with whatever it is actually storing or doing.
+  roomProps.setStock({
+    gold: game.goldOf(Owner.Player),
+    goldCap: game.treasuryCap(),
+    fills: game.roomStock(Owner.Player),
+  });
   roomProps.update(time);
   devices.syncIfDirty();
   devices.update(time, game.gasTiles());

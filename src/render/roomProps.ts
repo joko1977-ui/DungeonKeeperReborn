@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OWNER_COLORS, Owner, RoomType, Terrain, isSolid } from '../core/constants';
 import { FLAG_REVEALED, TileMap } from '../core/tilemap';
 import { PartBuilder } from './creatureModels';
-import { SIDES, outwardSidesAt } from './roomShell';
+import { SIDES, outwardSidesAt, roomInstances } from './roomShell';
 import { celRamp } from './celRamp';
 
 /**
@@ -307,6 +307,23 @@ function buildWorkbench(): THREE.BufferGeometry {
   return b.build();
 }
 
+/**
+ * What each of the player's rooms is actually holding, 0..1.
+ *
+ * A room's structure grows with its tile count; its *contents* grow with use,
+ * and until now nothing showed the second. A treasury with fifty gold and a
+ * treasury with fifty thousand were the same nine heaps, so the number in the
+ * corner of the screen was the only evidence the economy existed. The whole
+ * point of hoarding is watching the hoard.
+ */
+export interface RoomStock {
+  /** Gold the keeper holds, and what his vaults could take. */
+  gold: number;
+  goldCap: number;
+  /** How stocked every other room is, 0..1. */
+  fills: Partial<Record<RoomType, number>>;
+}
+
 /* --------------------------------------------------------------- render -- */
 
 /**
@@ -328,7 +345,13 @@ interface PropBatch {
   edgeMesh: THREE.InstancedMesh | null;
   edgeRule: EdgeRule;
   /**
-   * Tiles that took the interior piece, in the instance order they were written.
+   * Every interior prop this batch wrote, with the room it belongs to.
+   *
+   * `rank` counts outward from the middle of its own room and `total` is how
+   * many that room has, so how stocked a room looks is decided per *building*.
+   * Doing it per batch — one quota shared across every library on the map —
+   * meant three libraries between them showed a single lectern, and expanding
+   * one room emptied the others.
    *
    * The treasury re-lays its heaps every frame to grow them with the vault, and
    * it has to write them to the same slots the rebuild used. Walking the room's
@@ -336,7 +359,7 @@ interface PropBatch {
    * with the counts out of step — the piles ended up under the furniture and
    * some tiles got nothing at all.
    */
-  interiorTiles: number[];
+  interiorTiles: Array<{ tile: number; rank: number; total: number }>;
   /** Room this furniture belongs to. */
   room: RoomType;
   /** Tiles it was placed on, for animation that needs to know where. */
@@ -372,7 +395,9 @@ export class RoomPropRenderer {
   private readonly color = new THREE.Color();
 
   /** How full the player's treasury is, 0..1 — drives gold pile height. */
-  private goldFill = 0;
+  private stock: RoomStock = { gold: 0, goldCap: 0, fills: {} };
+  /** Last fill each room was laid out for, so it is only redone when it moves. */
+  private readonly lastFill = new Map<RoomType, number>();
 
   constructor(map: TileMap) {
     this.map = map;
@@ -513,6 +538,7 @@ export class RoomPropRenderer {
     const map = this.map;
     const { dummy } = this;
 
+    this.lastFill.clear();
     for (const batch of this.batches.values()) {
       batch.tiles.length = 0;
       batch.interiorTiles.length = 0;
@@ -539,8 +565,19 @@ export class RoomPropRenderer {
       if (batch && batch.tiles.length < MAX_PROPS) batch.tiles.push(i);
     }
 
+    const instances = roomInstances(map);
+    const midDist = (t: number): number =>
+      (map.xOf(t) - instances.midX[t]) ** 2 + (map.yOf(t) - instances.midY[t]) ** 2;
+
     // Lay out the tiled furniture, each piece according to where it stands.
     for (const batch of this.batches.values()) {
+      // Grouped by building, and inside each one middle-first: a partly stocked
+      // room should look partly stocked, not randomly moth-eaten.
+      batch.tiles.sort((a, b) => {
+        const ka = instances.midX[a] * 4096 + instances.midY[a];
+        const kb = instances.midX[b] * 4096 + instances.midY[b];
+        return ka !== kb ? ka - kb : midDist(a) - midDist(b);
+      });
       let n = 0, edgeN = 0;
       for (const tile of batch.tiles) {
         const x = map.xOf(tile), y = map.yOf(tile);
@@ -554,7 +591,7 @@ export class RoomPropRenderer {
           dummy.scale.setScalar(1);
           dummy.updateMatrix();
           batch.mesh.setMatrixAt(n++, dummy.matrix);
-          batch.interiorTiles.push(tile);
+          batch.interiorTiles.push({ tile, rank: 0, total: 1 });
           continue;
         }
 
@@ -599,8 +636,26 @@ export class RoomPropRenderer {
         dummy.scale.setScalar(scale);
         dummy.updateMatrix();
         batch.mesh.setMatrixAt(n++, dummy.matrix);
-        batch.interiorTiles.push(tile);
+        batch.interiorTiles.push({ tile, rank: 0, total: 0 });
       }
+
+      // Number each building's interior pieces outward from its own middle.
+      let runStart = 0;
+      for (let k = 0; k <= batch.interiorTiles.length; k++) {
+        const sameRoom = k < batch.interiorTiles.length
+          && instances.midX[batch.interiorTiles[k].tile]
+            === instances.midX[batch.interiorTiles[runStart].tile]
+          && instances.midY[batch.interiorTiles[k].tile]
+            === instances.midY[batch.interiorTiles[runStart].tile];
+        if (sameRoom) continue;
+        const total = k - runStart;
+        for (let j = runStart; j < k; j++) {
+          batch.interiorTiles[j].rank = j - runStart;
+          batch.interiorTiles[j].total = total;
+        }
+        runStart = k;
+      }
+
       batch.mesh.count = n;
       batch.mesh.instanceMatrix.needsUpdate = true;
       batch.mesh.computeBoundingSphere();
@@ -689,8 +744,9 @@ export class RoomPropRenderer {
   }
 
   /** How full the treasury is, so the gold visibly piles up as you mine. */
-  setGoldFill(fill: number): void {
-    this.goldFill = Math.max(0, Math.min(1, fill));
+  /** Push what the rooms are holding. Called every frame; costs nothing. */
+  setStock(stock: RoomStock): void {
+    this.stock = stock;
   }
 
   /** Animate the pieces that move. */
@@ -698,26 +754,89 @@ export class RoomPropRenderer {
     const { dummy } = this;
     const map = this.map;
 
-    // Gold heaps grow with the vault's contents — a treasury you can read.
+    /*
+     * The hoard, tile by tile.
+     *
+     * The simulation keeps gold as one number per keeper, so the heaps have to
+     * be shared out here. Filling every tile equally was what it used to do, and
+     * it meant a nearly-empty vault and a nearly-full one differed by a few
+     * centimetres of height across nine identical cones — invisible. Poured
+     * instead: each tile takes a full load before the next one gets anything, so
+     * gold coming in visibly *spreads*, and a vault at a third full is a third
+     * covered. Middle out, because that is where a pile starts.
+     */
     const treasury = this.batches.get(RoomType.Treasury);
-    if (treasury && treasury.mesh.count > 0) {
-      // Full vaults should look heaped, not like traffic cones.
-      const height = 0.35 + this.goldFill * 0.5;
+    if (treasury) {
+      // Every vault fills to the same fraction, because gold is one pool: a
+      // keeper a third of the way to full has three vaults a third covered, not
+      // one packed and two bare.
+      const fraction = this.stock.goldCap > 0
+        ? Math.max(0, Math.min(1, this.stock.gold / this.stock.goldCap))
+        : 0;
       let n = 0;
-      for (const tile of treasury.interiorTiles) {
+      for (const slot of treasury.interiorTiles) {
+        // How much of this tile's own load has arrived: the hoard is poured
+        // outward from the middle, so the leading tiles brim before the outer
+        // ones have anything. Filling every tile equally was what it used to do,
+        // and a nearly-empty vault then differed from a full one by a couple of
+        // centimetres across nine identical cones — invisible.
+        const here = Math.max(0, Math.min(1, fraction * slot.total - slot.rank));
+        if (here <= 0.01) continue;
+        const tile = slot.tile;
         const x = map.xOf(tile), y = map.yOf(tile);
         const scale = 0.86 + tileRandom(tile, 2) * 0.26;
         const ox = (tileRandom(tile, 3) - 0.5) * 0.22;
         const oz = (tileRandom(tile, 4) - 0.5) * 0.22;
         // Vary each pile a little so the surface isn't a flat plateau.
         const wobble = 0.8 + tileRandom(tile, 5) * 0.4;
+        const spread = 0.45 + here * 0.75;
         dummy.position.set(x + ox, 0, y + oz);
         dummy.rotation.set(0, tileRandom(tile, 1) * Math.PI * 2, 0);
-        dummy.scale.set(scale, scale * height * wobble, scale);
+        dummy.scale.set(
+          scale * spread, scale * (0.20 + here * 0.95) * wobble, scale * spread,
+        );
         dummy.updateMatrix();
         treasury.mesh.setMatrixAt(n++, dummy.matrix);
       }
+      treasury.mesh.count = n;
       treasury.mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    /*
+     * Everything else: as much furniture as the room has reason to hold.
+     *
+     * Pieces were laid out grouped by building and middle-first, so each room's
+     * quota is the leading run of its own group. It cannot be done by trimming
+     * the mesh's instance count — one batch holds every library on the map, and
+     * a count only clips the tail — so the surplus is compacted out instead.
+     *
+     * At least one piece always stands. A training room with nobody in it is
+     * still a training room, and a bare floor would read as unbuilt.
+     */
+    for (const batch of this.batches.values()) {
+      if (batch.room === RoomType.Treasury || batch.room === RoomType.Bridge) continue;
+      const fill = this.stock.fills[batch.room];
+      if (fill === undefined || batch.interiorTiles.length === 0) continue;
+      if (this.lastFill.get(batch.room) === fill) continue;
+      this.lastFill.set(batch.room, fill);
+
+      let n = 0;
+      for (const slot of batch.interiorTiles) {
+        const quota = Math.max(1, Math.ceil(fill * slot.total));
+        if (slot.rank >= quota) continue;
+        const tile = slot.tile;
+        const x = map.xOf(tile), y = map.yOf(tile);
+        const scale = 0.86 + tileRandom(tile, 2) * 0.26;
+        dummy.position.set(
+          x + (tileRandom(tile, 3) - 0.5) * 0.22, 0, y + (tileRandom(tile, 4) - 0.5) * 0.22,
+        );
+        dummy.rotation.set(0, tileRandom(tile, 1) * Math.PI * 2, 0);
+        dummy.scale.setScalar(scale);
+        dummy.updateMatrix();
+        batch.mesh.setMatrixAt(n++, dummy.matrix);
+      }
+      batch.mesh.count = n;
+      batch.mesh.instanceMatrix.needsUpdate = true;
     }
 
     // The heart beats: a sharp contraction and a slow release, not a sine.

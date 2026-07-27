@@ -778,6 +778,77 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
+/* -- buildings grow ------------------------------------------------------- */
+
+{
+  const { roomInstances, grandeur } = await import('../src/render/roomShell');
+  const g = generateLevel({ seed: 991 });
+  const m = g.map;
+  const cx = g.startView().x, cy = g.startView().y;
+
+  const lay = (x0: number, y0: number, span: number, type: RoomType): void => {
+    for (let y = y0; y < y0 + span; y++) {
+      for (let x = x0; x < x0 + span; x++) {
+        m.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+        m.room[m.idx(x, y)] = type;
+      }
+    }
+  };
+  lay(cx - 1, cy - 1, 3, RoomType.Library);
+  lay(cx + 6, cy - 2, 5, RoomType.Library);
+
+  let inst = roomInstances(m);
+  check('a room knows how big it is',
+    inst.size[m.idx(cx, cy)] === 9 && inst.size[m.idx(cx + 8, cy)] === 25,
+    { small: inst.size[m.idx(cx, cy)], large: inst.size[m.idx(cx + 8, cy)] });
+  check('and where its middle is',
+    Math.abs(inst.midX[m.idx(cx, cy)] - cx) < 0.001
+    && Math.abs(inst.midY[m.idx(cx, cy)] - cy) < 0.001);
+  check('two rooms of a type do not merge across a gap',
+    inst.size[m.idx(cx, cy)] !== inst.size[m.idx(cx + 8, cy)]);
+
+  // Joining them makes one building, and that is what should be measured.
+  for (let y = cy - 1; y <= cy + 1; y++) {
+    for (let x = cx + 2; x < cx + 6; x++) {
+      m.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      m.room[m.idx(x, y)] = RoomType.Library;
+    }
+  }
+  inst = roomInstances(m);
+  check('joining two rooms makes one bigger building',
+    inst.size[m.idx(cx, cy)] === inst.size[m.idx(cx + 8, cy)]
+    && inst.size[m.idx(cx, cy)] > 25,
+    inst.size[m.idx(cx, cy)]);
+
+  check('grandeur is bounded', grandeur(1) === 0 && grandeur(1000) === 1);
+  check('and rises with size', grandeur(9) > grandeur(4) && grandeur(25) > grandeur(9));
+
+  // Stock: a room's contents follow what it holds.
+  const stocked = generateLevel({ seed: 991 });
+  // A room the keeper has not built reports nothing rather than dividing by
+  // zero, so the hatchery has to exist before its stock means anything.
+  const sx = stocked.startView().x + 5, sy = stocked.startView().y + 5;
+  for (let y = sy; y < sy + 3; y++) {
+    for (let x = sx; x < sx + 3; x++) {
+      stocked.map.setTerrain(x, y, Terrain.Claimed, Owner.Player);
+      stocked.map.room[stocked.map.idx(x, y)] = RoomType.Hatchery;
+    }
+  }
+  const empty = stocked.roomStock(Owner.Player);
+  stocked.keeper(Owner.Player).food = 999;
+  stocked.keeper(Owner.Player).research = 999;
+  const full = stocked.roomStock(Owner.Player);
+  check('an unfed hatchery reads as empty', (empty[RoomType.Hatchery] ?? 0) === 0);
+  check('a fed one reads as full', (full[RoomType.Hatchery] ?? 0) > (empty[RoomType.Hatchery] ?? 0));
+  check('a studied library fills up',
+    (full[RoomType.Library] ?? 0) > (empty[RoomType.Library] ?? 0));
+  check('every stock figure stays in range',
+    Object.values(full).every((v) => v >= 0 && v <= 1), full);
+  // A room with no tiles has nothing to report, rather than dividing by zero.
+  check('a room you have not built reads as zero',
+    (stocked.roomStock(Owner.KeeperGreen)[RoomType.Workshop] ?? 0) >= 0);
+}
+
 /* -- the dig plan -------------------------------------------------------- */
 
 {

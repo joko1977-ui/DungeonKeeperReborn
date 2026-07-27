@@ -163,6 +163,82 @@ export function outwardSidesAt(map: TileMap, x: number, y: number): boolean[] {
   return SIDES.map(([dx, dy]) => roomIdentityAt(map, x + dx, y + dy) !== self);
 }
 
+/**
+ * How big the room each tile belongs to actually is.
+ *
+ * A room is not a tile type, it is a *building*, and until something counted the
+ * building nothing could respond to its size: a twenty-tile treasure hall got
+ * the same four knee-high posts as a three-by-three one, so expanding a room
+ * changed the number on the panel and nothing you could see. Which makes the
+ * central decision of the whole economy — spend gold widening this room, or
+ * spend it elsewhere — invisible at the point where you make it.
+ *
+ * One flood fill per rebuild gives every tile the size of its own connected
+ * room, and everything that should grow with a building hangs off that number.
+ *
+ * Returns, per tile index, the size of its room and where that room's middle
+ * is. Size is zero for tiles in no room.
+ */
+export interface RoomInstances {
+  size: Int32Array;
+  midX: Float32Array;
+  midY: Float32Array;
+}
+
+export function roomInstances(map: TileMap): RoomInstances {
+  const sizes = new Int32Array(map.room.length);
+  const midX = new Float32Array(map.room.length);
+  const midY = new Float32Array(map.room.length);
+  const seen = new Uint8Array(map.room.length);
+  const stack: number[] = [];
+  const members: number[] = [];
+
+  for (let start = 0; start < sizes.length; start++) {
+    if (seen[start]) continue;
+    const self = roomIdentityAt(map, map.xOf(start), map.yOf(start));
+    seen[start] = 1;
+    if (self < 0) continue;
+
+    stack.length = 0;
+    members.length = 0;
+    stack.push(start);
+    while (stack.length > 0) {
+      const i = stack.pop()!;
+      members.push(i);
+      const x = map.xOf(i), y = map.yOf(i);
+      for (const [dx, dy] of SIDES) {
+        const nx = x + dx, ny = y + dy;
+        if (!map.inBounds(nx, ny)) continue;
+        const j = map.idx(nx, ny);
+        if (seen[j]) continue;
+        if (roomIdentityAt(map, nx, ny) !== self) continue;
+        seen[j] = 1;
+        stack.push(j);
+      }
+    }
+    let sx = 0, sy = 0;
+    for (const m of members) { sx += map.xOf(m); sy += map.yOf(m); }
+    const cx = sx / members.length, cy = sy / members.length;
+    for (const m of members) {
+      sizes[m] = members.length;
+      midX[m] = cx;
+      midY[m] = cy;
+    }
+  }
+  return { size: sizes, midX, midY };
+}
+
+/**
+ * How grand a building of this many tiles should look, 0..1.
+ *
+ * Deliberately not linear. The step from a three-by-three room to a six-by-six
+ * is the one the player feels, and doubling again after that should still read
+ * as bigger without the posts growing into towers.
+ */
+export function grandeur(tiles: number): number {
+  return Math.min(1, Math.max(0, (tiles - 4) / 28));
+}
+
 export class RoomShell {
   readonly group = new THREE.Group();
 
@@ -215,6 +291,7 @@ export class RoomShell {
 
   private rebuild(): void {
     const { map, dummy, colour } = this;
+    const { size: sizes } = roomInstances(map);
     let kerbN = 0;
     const postN = new Map<RoomType, number>();
     for (const room of SHELLED) postN.set(room, 0);
@@ -229,11 +306,16 @@ export class RoomShell {
       const x = map.xOf(i), y = map.yOf(i);
       const outward = outwardSidesAt(map, x, y);
 
+      // A bigger building is built heavier: the kerb thickens and stands
+      // taller, which is what you see first from above.
+      const grand = grandeur(sizes[i]);
+      const kerbScale = 1 + grand * 0.55;
+
       for (let s = 0; s < 4; s++) {
         if (!outward[s] || kerbN >= MAX_KERB) continue;
         dummy.position.set(x, 0, y);
         dummy.rotation.set(0, (s * Math.PI) / 2, 0);
-        dummy.scale.setScalar(1);
+        dummy.scale.set(1, kerbScale, 1 + grand * 0.35);
         dummy.updateMatrix();
         this.kerb.setMatrixAt(kerbN, dummy.matrix);
         colour.setHex(tint);
@@ -251,6 +333,31 @@ export class RoomShell {
        */
       const mesh = this.posts.get(room);
       if (!mesh) continue;
+
+      /*
+       * Extra columns down the long walls of a big hall.
+       *
+       * Corner posts alone meant a large room was a bigger rectangle with the
+       * same four markers on it — the span between them grew and grew and
+       * nothing held it up. Every fourth tile of a run gets its own column once
+       * the room is worth the name, so the colonnade lengthens as you build.
+       */
+      if (grand > 0.22) {
+        for (let s = 0; s < 4; s++) {
+          const next = (s + 1) & 3, prev = (s + 3) & 3;
+          if (!outward[s] || outward[next] || outward[prev]) continue;
+          if (((x * 3 + y * 5) & 3) !== 0) continue;
+          const at = postN.get(room) ?? 0;
+          if (at >= MAX_POSTS) break;
+          dummy.position.set(x + SIDES[s][0] * 0.5, 0, y + SIDES[s][1] * 0.5);
+          dummy.rotation.set(0, Math.atan2(SIDES[s][0], SIDES[s][1]), 0);
+          dummy.scale.setScalar(0.72 + grand * 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(at, dummy.matrix);
+          postN.set(room, at + 1);
+        }
+      }
+
       for (let s = 0; s < 4; s++) {
         const next = (s + 1) & 3;
         if (!outward[s] || !outward[next]) continue;
@@ -261,7 +368,8 @@ export class RoomShell {
         const cz = (SIDES[s][1] + SIDES[next][1]) * 0.5;
         dummy.position.set(x + cx, 0, y + cz);
         dummy.rotation.set(0, Math.atan2(cx, cz), 0);
-        dummy.scale.setScalar(1);
+        // Corner columns grow with the hall they hold up.
+        dummy.scale.setScalar(0.9 + grand * 0.75);
         dummy.updateMatrix();
         mesh.setMatrixAt(at, dummy.matrix);
         postN.set(room, at + 1);

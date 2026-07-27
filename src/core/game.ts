@@ -1362,6 +1362,44 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     return treasuryCapacity(this.map, this.rooms, Owner.Player);
   }
 
+  /**
+   * How stocked each of the player's rooms is, 0..1.
+   *
+   * Purely for the look of the place: a room's structure follows its tile count,
+   * and its *contents* should follow what it is actually holding. A treasury with
+   * fifty gold and one with fifty thousand used to be the same nine heaps, so the
+   * number in the corner of the screen was the only evidence the economy existed
+   * at all — and the whole point of hoarding is watching the hoard.
+   *
+   * Each figure is per tile of that room, clamped, so widening a room makes it
+   * look emptier until you fill it. Which is true, and worth seeing.
+   */
+  roomStock(owner: Owner): Partial<Record<RoomType, number>> {
+    const per = (type: RoomType, amount: number, perTile: number): number => {
+      const tiles = this.rooms.count(this.map, owner, type);
+      if (tiles === 0) return 0;
+      return Math.max(0, Math.min(1, amount / (tiles * perTile)));
+    };
+    const mine = this.creatures.filter((c) => c.owner === owner);
+    const workers = mine.filter((c) => !CREATURE_SPECS[c.type].worker);
+    return {
+      // One bird per tile is a full larder.
+      [RoomType.Hatchery]: per(RoomType.Hatchery, this.keeper(owner).food, 1),
+      // A lair is full when every tile has something sleeping in it.
+      [RoomType.Lair]: per(RoomType.Lair, workers.length, 1),
+      // A training room fills up with the creatures actually using it.
+      [RoomType.TrainingRoom]: per(
+        RoomType.TrainingRoom,
+        mine.filter((c) => c.state === CreatureState.Training).length, 1,
+      ),
+      // A library fills with what has been learned. It saturates rather than
+      // capping, because research never stops and the shelves should not empty.
+      [RoomType.Library]: Math.min(1, this.keeper(owner).research / 400),
+      // A workshop is as busy as the order on its bench.
+      [RoomType.Workshop]: this.manufactureTarget ? 0.35 + this.manufactureProgress() * 0.65 : 0.2,
+    };
+  }
+
   roomTileCount(type: RoomType): number {
     return this.rooms.count(this.map, Owner.Player, type);
   }
