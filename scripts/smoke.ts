@@ -778,6 +778,39 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
     sidesAt(cx + 1, cy));
 }
 
+/* -- the hoard has detail without blowing the budget ---------------------- */
+
+{
+  const props = await import('../src/render/roomProps');
+  const tiers = [
+    ['loose change', props.buildCoinScatter()],
+    ['a heap', props.buildGoldHeap()],
+    ['a hoard', props.buildGoldHoard()],
+  ] as const;
+
+  let previous = 0;
+  for (const [name, geo] of tiers) {
+    const verts = geo.attributes.position.count;
+    // Detail is the whole point, so there has to be enough of it — the shape it
+    // replaced was four stacked discs and about two hundred vertices.
+    check(`${name} is built from more than a few blobs`, verts > 400, { verts });
+    // But a treasury can be ninety tiles, and every one of them is an instance.
+    check(`${name} stays inside the instancing budget`, verts < 6000, { verts });
+    check(`${name} has more in it than the tier below`, verts > previous, { verts });
+    previous = verts;
+
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!;
+    // It has to sit on the tile it belongs to and stay on the floor: a pile that
+    // sank would leave a ring of coins round a hole, and one that overhung would
+    // poke through the kerb of the room next door.
+    check(`${name} sits on the floor`, box.min.y > -0.05, Number(box.min.y.toFixed(3)));
+    check(`${name} stays on its own tile`,
+      Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z) < 0.5,
+      Number(Math.max(-box.min.x, box.max.x, -box.min.z, box.max.z).toFixed(3)));
+  }
+}
+
 /* -- buildings grow ------------------------------------------------------- */
 
 {

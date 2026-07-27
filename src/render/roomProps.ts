@@ -29,18 +29,181 @@ function tileRandom(tile: number, salt: number): number {
 
 /* ------------------------------------------------------------- geometry -- */
 
-/** A heap of coins. Scaled vertically at runtime by how full the vault is. */
-function buildGoldPile(): THREE.BufferGeometry {
+/*
+ * The hoard.
+ *
+ * It used to be four stacked discs of decreasing radius. That is a wedding cake,
+ * and it is what you get when a shape is designed from the idea "pile" rather
+ * than from what a pile of money actually looks like — which is *coins*, plural,
+ * individually visible, lying at every angle, with the odd cup or crown that
+ * somebody threw on top. Repeated across a nine-tile vault it read as a row of
+ * orange traffic cones.
+ *
+ * So the gold is built out of the things it is made of, and there are three of
+ * them rather than one shape scaled up and down. A handful of coins on bare
+ * flagstone, a proper heap, and a hoard with treasure in it: which one a tile
+ * wears is chosen from how much gold has reached it, so a vault filling up does
+ * not merely grow, it *changes* — loose change becomes a heap becomes a hoard.
+ * A shape that only scales says "more of the same"; three shapes say "richer".
+ */
+
+/** Deterministic noise for laying out a geometry, so a build is repeatable. */
+function goldRandom(n: number): number {
+  const r = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return r - Math.floor(r);
+}
+
+/** The golds a hoard is made of. Never one flat yellow. */
+const COIN_COLOURS = [0xd9a520, 0xf2c33c, 0xffd75e, 0xffe89a, 0xc9901c, 0xfff0bf];
+
+/**
+ * Scatter coins over the surface of a mound.
+ *
+ * Placed on a paraboloid and tilted to lie along its slope, so they sit *on* the
+ * heap instead of hovering in a cloud around it, and each one is turned a little
+ * further so no two catch the light the same way.
+ */
+function coinsOnMound(
+  b: PartBuilder, count: number, radius: number, height: number, seed: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = goldRandom(seed + i * 3.1) * Math.PI * 2;
+    // Square-rooted so coins spread evenly over the area rather than crowding
+    // the middle, which is what a uniform radius would do.
+    const t = Math.sqrt(goldRandom(seed + i * 7.7));
+    const r = t * radius;
+    const y = height * (1 - t * t) + 0.012;
+    // The slope of the paraboloid at this radius, so the coin lies along it.
+    const slope = Math.atan2(2 * height * t, radius);
+    const size = 0.052 + goldRandom(seed + i * 11.3) * 0.030;
+    b.cylinder(
+      size, size, 0.016, Math.cos(a) * r, y, Math.sin(a) * r,
+      COIN_COLOURS[i % COIN_COLOURS.length],
+      slope * Math.cos(a) + (goldRandom(seed + i * 5.9) - 0.5) * 0.5,
+      goldRandom(seed + i * 2.3) * Math.PI,
+      slope * Math.sin(a) + (goldRandom(seed + i * 13.1) - 0.5) * 0.5,
+      8,
+    );
+  }
+}
+
+/**
+ * A lumpy mound of loose gold, rather than a cone.
+ *
+ * Three overlapping squashed spheres: a heap of small hard objects settles into
+ * lobes, where a single dome reads as something moulded. Each lobe is sized and
+ * placed so its underside rests exactly on the floor and the main one tops out
+ * at `top` — worked out rather than eyeballed, because a mound whose sphere dips
+ * below zero leaves a ring of coins around a hole in the flagstones.
+ */
+function goldMound(b: PartBuilder, radius: number, top: number, seed: number): void {
+  for (let i = 0; i < 3; i++) {
+    const a = goldRandom(seed + i * 17.3) * Math.PI * 2;
+    const lobeR = radius * (i === 0 ? 0.92 : 0.60);
+    const lobeTop = i === 0 ? top : top * 0.62;
+    const squash = lobeTop / (2 * lobeR);
+    b.sphere(
+      lobeR, Math.cos(a) * (i === 0 ? 0 : radius * 0.20), lobeTop / 2,
+      Math.sin(a) * (i === 0 ? 0 : radius * 0.20),
+      /*
+       * Dark, and much darker than the coins on it.
+       *
+       * The mound started out the same bright gold as the coins scattered over
+       * it, which meant a pile with forty individually modelled coins read as an
+       * orange dome with speckle on it: no value contrast, so no detail, however
+       * much geometry was in there. What is actually between the coins of a heap
+       * is shadow — you see the lit faces and the dark gaps, and it is the gaps
+       * that make the coins into coins.
+       */
+      i === 0 ? 0x6b4a12 : 0x7c581a, 1, squash, 1, 9,
+    );
+  }
+}
+
+/** A few coins on bare stone: what a nearly-empty vault holds. */
+export function buildCoinScatter(variant = 0): THREE.BufferGeometry {
   const b = new PartBuilder();
-  // Stacked discs of decreasing radius read as a heap from any angle.
-  b.cylinder(0.30, 0.34, 0.06, 0, 0.03, 0, 0xe6b800);
-  b.cylinder(0.23, 0.28, 0.06, 0.02, 0.09, -0.01, 0xffd700);
-  b.cylinder(0.15, 0.20, 0.06, -0.02, 0.15, 0.02, 0xffd700);
-  b.cylinder(0.07, 0.12, 0.05, 0.01, 0.20, 0, 0xffec8b);
-  // A few loose coins spilled around the base.
-  b.cylinder(0.055, 0.055, 0.018, -0.28, 0.01, 0.20, 0xf0c04a, 0, 0, 0.2);
-  b.cylinder(0.055, 0.055, 0.018, 0.26, 0.01, -0.24, 0xffd45c, 0, 0, -0.15);
-  b.cylinder(0.055, 0.055, 0.018, 0.05, 0.01, 0.31, 0xe0a838);
+  const v = variant * 613;
+  for (let i = 0; i < 10 + variant * 3; i++) {
+    const a = goldRandom(91 + v + i * 3.7) * Math.PI * 2;
+    const r = Math.sqrt(goldRandom(91 + v + i * 9.1)) * 0.34;
+    const size = 0.055 + goldRandom(91 + v + i * 5.3) * 0.028;
+    // Most lie flat; a couple have come to rest leaning on their neighbours.
+    const leaning = goldRandom(91 + v + i * 6.1) > 0.78;
+    b.cylinder(
+      size, size, 0.016, Math.cos(a) * r, leaning ? size * 0.7 : 0.010, Math.sin(a) * r,
+      COIN_COLOURS[i % COIN_COLOURS.length],
+      leaning ? 1.2 : (goldRandom(91 + v + i * 2.9) - 0.5) * 0.3,
+      goldRandom(91 + v + i * 4.3) * Math.PI,
+      leaning ? 0.4 : (goldRandom(91 + v + i * 8.7) - 0.5) * 0.3,
+      8,
+    );
+  }
+  // One small stack, because coins get stacked.
+  for (let i = 0; i < 3; i++) {
+    b.cylinder(0.062, 0.062, 0.016, variant ? -0.18 : 0.20, 0.010 + i * 0.017, variant ? 0.19 : -0.16,
+      COIN_COLOURS[(i + 2) % COIN_COLOURS.length], 0, i * 0.4, 0, 8);
+  }
+  return b.build();
+}
+
+/** A working heap: a mound of gold with the coins showing. */
+export function buildGoldHeap(variant = 0): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  const v = variant * 613;
+  goldMound(b, 0.30 + variant * 0.04, 0.19 + variant * 0.04, 5 + v);
+  coinsOnMound(b, 30 + variant * 5, 0.33 + variant * 0.03, 0.19 + variant * 0.04, 41 + v);
+  // Spill at the foot of it — a heap that stopped dead at its own radius would
+  // look bagged rather than poured.
+  for (let i = 0; i < 5; i++) {
+    const a = goldRandom(200 + v + i * 4.7) * Math.PI * 2;
+    const r = 0.36 + goldRandom(200 + v + i * 8.3) * 0.08;
+    b.cylinder(0.055, 0.055, 0.015, Math.cos(a) * r, 0.009, Math.sin(a) * r,
+      COIN_COLOURS[(i + 1 + variant) % COIN_COLOURS.length],
+      (goldRandom(200 + v + i) - 0.5) * 0.3, goldRandom(200 + v + i * 2) * Math.PI, 0, 8);
+  }
+  return b.build();
+}
+
+/** A hoard: as much gold as the tile can hold, and the loot that came with it. */
+export function buildGoldHoard(variant = 0): THREE.BufferGeometry {
+  const b = new PartBuilder();
+  const v = variant * 613;
+  // The second variant is mirrored as well as reseeded, so the loot on top
+  // lands on the other side. Rotation alone cannot hide that two neighbouring
+  // hoards have their crown in the same place.
+  const m = variant ? -1 : 1;
+  goldMound(b, 0.32 + variant * 0.03, 0.33 + variant * 0.03, 13 + v);
+  coinsOnMound(b, 44 + variant * 6, 0.34 + variant * 0.03, 0.33 + variant * 0.03, 77 + v);
+
+  // A goblet lying on its side near the top.
+  b.cylinder(0.055, 0.038, 0.11, m * -0.13, 0.30, 0.06, 0xffdd6e, 1.35, 0, m * 0.3, 8);
+  b.cylinder(0.014, 0.014, 0.07, m * -0.09, 0.25, 0.11, 0xe8c245, 1.35, 0, m * 0.3, 6);
+  b.cylinder(0.045, 0.045, 0.016, m * -0.06, 0.22, 0.14, 0xe8c245, 1.35, 0, m * 0.3, 8);
+
+  // A crown, half buried: a band with points round it.
+  b.cylinder(0.085, 0.085, 0.045, m * 0.14, 0.28, -0.06, 0xffe07a, 0.35, 0, m * 0.15, 9);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    b.cone(0.020, 0.055, m * 0.14 + Math.cos(a) * 0.078, 0.32, -0.06 + Math.sin(a) * 0.078,
+      0xfff0b0, 0.35, 0, m * 0.15, 5);
+  }
+
+  // Gemstones, because a hoard that is all one colour is a pile of tokens.
+  const gems = [0x59d8ff, 0xff5f8f, 0x76e88a, 0xc78bff];
+  for (let i = 0; i < 4; i++) {
+    const a = goldRandom(301 + v + i * 6.7) * Math.PI * 2;
+    const r = 0.10 + goldRandom(301 + v + i * 3.3) * 0.20;
+    b.sphere(0.036, Math.cos(a) * r, 0.30 - r * 0.35, Math.sin(a) * r, gems[i], 1, 1.3, 1, 5);
+  }
+
+  // Two ingots stacked at the base, and a chain of coins spilling off the side.
+  b.box(0.19, 0.055, 0.095, m * 0.24, 0.030, 0.20, 0xf0c542, 0, m * 0.5, 0);
+  b.box(0.17, 0.050, 0.085, m * 0.235, 0.080, 0.195, 0xffd75e, 0, m * 0.62, 0);
+  for (let i = 0; i < 6; i++) {
+    b.cylinder(0.042, 0.042, 0.014, m * (-0.20 - i * 0.030), 0.30 - i * 0.048, -0.12 - i * 0.018,
+      COIN_COLOURS[(i + variant) % COIN_COLOURS.length], 0.8 + i * 0.1, i * 0.6, m * 0.3, 7);
+  }
   return b.build();
 }
 
@@ -398,6 +561,8 @@ export class RoomPropRenderer {
   private stock: RoomStock = { gold: 0, goldCap: 0, fills: {} };
   /** Last fill each room was laid out for, so it is only redone when it moves. */
   private readonly lastFill = new Map<RoomType, number>();
+  /** Hoard meshes, indexed by tier then variant. */
+  private readonly goldTiers: THREE.InstancedMesh[][] = [];
 
   constructor(map: TileMap) {
     this.map = map;
@@ -458,7 +623,7 @@ export class RoomPropRenderer {
     const tiled: Array<
       [RoomType, THREE.BufferGeometry, THREE.BufferGeometry | null, EdgeRule]
     > = [
-      [RoomType.Treasury, buildGoldPile(), buildStrongbox(), 'corners'],
+      [RoomType.Treasury, buildGoldHeap(), buildStrongbox(), 'corners'],
       [RoomType.Lair, buildLairNest(), buildBonePile(), 'boundary'],
       [RoomType.Hatchery, buildHatcheryNest(), buildTrough(), 'corners'],
       [RoomType.TrainingRoom, buildTrainingDummy(), buildWeaponRack(), 'boundary'],
@@ -484,6 +649,38 @@ export class RoomPropRenderer {
     }
 
     /*
+     * The hoard, in three tiers of two.
+     *
+     * Two variants of each because instancing means every tile of a full vault
+     * wears the same geometry, and at nine or ninety tiles that repeat is the
+     * loudest thing in the room — the same crown in the same place, forty times.
+     * A random turn about the vertical does not hide it, since the pile is seen
+     * from above and its plan is what you read. The second variant is reseeded
+     * *and* mirrored, so its loot lands on the other side.
+     */
+    for (let tier = 0; tier < 3; tier++) {
+      const row: THREE.InstancedMesh[] = [];
+      for (let variant = 0; variant < 2; variant++) {
+        // The middle tier's first variant is the treasury batch's own mesh,
+        // already built above; the rest are made here.
+        const existing = tier === 1 && variant === 0
+          ? this.batches.get(RoomType.Treasury)?.mesh : undefined;
+        if (existing) { row.push(existing); continue; }
+        const geo = tier === 0 ? buildCoinScatter(variant)
+          : tier === 1 ? buildGoldHeap(variant) : buildGoldHoard(variant);
+        const mesh = new THREE.InstancedMesh(geo, this.goldMaterial, MAX_PROPS);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        row.push(mesh);
+        this.group.add(mesh);
+      }
+      this.goldTiers.push(row);
+    }
+
+    /*
      * Gold lying on the floor.
      *
      * A seam holds three imp-loads, so mining one leaves two of them on the
@@ -492,7 +689,7 @@ export class RoomPropRenderer {
      * player's only evidence was a number that would not go up. A heap you can
      * see is the difference between a bug and a situation.
      */
-    this.loosePiles = new THREE.InstancedMesh(buildGoldPile(), this.goldMaterial, MAX_PROPS);
+    this.loosePiles = new THREE.InstancedMesh(buildCoinScatter(), this.goldMaterial, MAX_PROPS);
     this.loosePiles.castShadow = true;
     this.loosePiles.receiveShadow = true;
     this.loosePiles.frustumCulled = false;
@@ -766,40 +963,50 @@ export class RoomPropRenderer {
      * covered. Middle out, because that is where a pile starts.
      */
     const treasury = this.batches.get(RoomType.Treasury);
-    if (treasury) {
+    if (treasury && this.goldTiers.length === 3) {
       // Every vault fills to the same fraction, because gold is one pool: a
       // keeper a third of the way to full has three vaults a third covered, not
       // one packed and two bare.
       const fraction = this.stock.goldCap > 0
         ? Math.max(0, Math.min(1, this.stock.gold / this.stock.goldCap))
         : 0;
-      let n = 0;
+      const counts = [[0, 0], [0, 0], [0, 0]];
       for (const slot of treasury.interiorTiles) {
-        // How much of this tile's own load has arrived: the hoard is poured
+        // How much of this tile's own load has arrived. The hoard is poured
         // outward from the middle, so the leading tiles brim before the outer
-        // ones have anything. Filling every tile equally was what it used to do,
-        // and a nearly-empty vault then differed from a full one by a couple of
-        // centimetres across nine identical cones — invisible.
+        // ones have anything.
         const here = Math.max(0, Math.min(1, fraction * slot.total - slot.rank));
-        if (here <= 0.01) continue;
+        if (here <= 0.02) continue;
+        // Loose change, heap, hoard. Changing the *shape* is what makes a vault
+        // filling up read as getting richer rather than as one prop inflating.
+        const tier = here < 0.34 ? 0 : here < 0.72 ? 1 : 2;
         const tile = slot.tile;
         const x = map.xOf(tile), y = map.yOf(tile);
         const scale = 0.86 + tileRandom(tile, 2) * 0.26;
         const ox = (tileRandom(tile, 3) - 0.5) * 0.22;
         const oz = (tileRandom(tile, 4) - 0.5) * 0.22;
-        // Vary each pile a little so the surface isn't a flat plateau.
-        const wobble = 0.8 + tileRandom(tile, 5) * 0.4;
-        const spread = 0.45 + here * 0.75;
+        // Within a tier the pile still swells, so gold arriving between one
+        // threshold and the next is not a dead zone where nothing happens.
+        const band = tier === 0 ? here / 0.34 : tier === 1 ? (here - 0.34) / 0.38 : (here - 0.72) / 0.28;
+        const grow = 0.78 + band * 0.34;
+        const wobble = 0.85 + tileRandom(tile, 5) * 0.3;
         dummy.position.set(x + ox, 0, y + oz);
         dummy.rotation.set(0, tileRandom(tile, 1) * Math.PI * 2, 0);
-        dummy.scale.set(
-          scale * spread, scale * (0.20 + here * 0.95) * wobble, scale * spread,
-        );
+        dummy.scale.set(scale * grow, scale * grow * wobble, scale * grow);
         dummy.updateMatrix();
-        treasury.mesh.setMatrixAt(n++, dummy.matrix);
+        // Which of the two builds this tile happens to have is fixed by the
+        // tile, so a hoard does not flip its crown to the other side every time
+        // a coin arrives.
+        const variant = tileRandom(tile, 8) < 0.5 ? 0 : 1;
+        const mesh = this.goldTiers[tier][variant];
+        mesh.setMatrixAt(counts[tier][variant]++, dummy.matrix);
       }
-      treasury.mesh.count = n;
-      treasury.mesh.instanceMatrix.needsUpdate = true;
+      for (let t = 0; t < 3; t++) {
+        for (let v = 0; v < 2; v++) {
+          this.goldTiers[t][v].count = counts[t][v];
+          this.goldTiers[t][v].instanceMatrix.needsUpdate = true;
+        }
+      }
     }
 
     /*
@@ -878,6 +1085,7 @@ export class RoomPropRenderer {
       b.mesh.geometry.dispose();
       b.edgeMesh?.geometry.dispose();
     }
+    for (const row of this.goldTiers) for (const m of row) m.geometry.dispose();
     for (const m of [this.heartBase, this.heartCore, this.portalRing, this.portalSwirl]) {
       m.geometry.dispose();
     }
