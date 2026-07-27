@@ -369,14 +369,33 @@ function thinkImp(world: AIWorld, c: Creature): void {
     }
   }
 
-  // 3. Dig anything the keeper has tagged.
+  /*
+   * 3. Dig anything the keeper has tagged — except gold he cannot store.
+   *
+   * A full vault used to change nothing about the work: imps carried on breaking
+   * open seams, the deposit was refused, and the load went onto the floor beside
+   * the treasury. From the player's chair that is a workforce cheerfully mining
+   * into a heap that never turns into money, and it destroys the one lever the
+   * treasury is supposed to give you — build more vault, or stop mining. Gold you
+   * cannot bank is better left in the wall, where it keeps perfectly.
+   *
+   * Only the seams are held back. Plain earth carries no gold, so excavating it
+   * is still useful work and the dungeon does not down tools altogether because
+   * the counting house is full.
+   */
+  const vaultHasRoom = world.hasTreasurySpace(c.owner);
   const digTarget = world.finder.findNearest(
     ix, iy,
     (x, y) => pass(x, y),
     // Only tags with a reachable face are workable right now; the rest of a
     // tagged slab becomes diggable as the outer layer comes away.
-    (x, y) => world.hasDigOrder(c.owner, x, y) && isDiggable(map.terrainAt(x, y))
-      && map.hasExposedFace(x, y),
+    (x, y) => {
+      if (!world.hasDigOrder(c.owner, x, y)) return false;
+      const t = map.terrainAt(x, y);
+      if (!isDiggable(t) || !map.hasExposedFace(x, y)) return false;
+      if (!vaultHasRoom && (t === Terrain.Gold || t === Terrain.Gems)) return false;
+      return true;
+    },
   );
   if (digTarget >= 0) {
     const stand = adjacentStandTile(map, digTarget, c);
@@ -464,8 +483,11 @@ function impWorkAtTarget(world: AIWorld, c: Creature): boolean {
 
   const terrain = map.terrainAt(tx, ty);
 
-  // Excavating.
-  if (world.hasDigOrder(c.owner, tx, ty) && isDiggable(terrain)) {
+  // Excavating. A seam stops being workable the moment the vault fills, even
+  // mid-swing: the imp downs tools rather than spilling the next load.
+  if (world.hasDigOrder(c.owner, tx, ty) && isDiggable(terrain)
+    && !((terrain === Terrain.Gold || terrain === Terrain.Gems)
+      && !world.hasTreasurySpace(c.owner))) {
     c.state = CreatureState.Digging;
     const gold = map.digTile(tx, ty, IMP_DIG_RATE);
     if (c.stateTimer % 6 === 0) world.effect('dig', tx, ty);

@@ -71,7 +71,25 @@ const territory = map.countOwned(Owner.Player);
 // dragged slab will occasionally include one. That is a true property of the
 // map rather than a stuck imp, so the check is that the slab was worked through,
 // not that every last tile of it fell.
-check('imps clear the tagged slab', stillMarked <= 2, { stillMarked });
+/*
+ * The slab clears down to what the vault can hold.
+ *
+ * This used to assert the whole slab fell. It no longer does, on purpose: a
+ * keeper whose treasury is full has imps that leave the seams standing, because
+ * gold that cannot be banked is better left in the wall. So what is checked now
+ * is that nothing *diggable and storable* was left — every survivor is a seam,
+ * and the vault is full.
+ */
+{
+  const survivors: Terrain[] = [];
+  for (let i = 0; i < map.flags.length; i++) {
+    if ((map.flags[i] & 1) !== 0) survivors.push(map.terrain[i] as Terrain);
+  }
+  const seamsOnly = survivors.every((t) => t === Terrain.Gold || t === Terrain.Gems);
+  check('imps clear everything they can store',
+    stillMarked <= 2 || (seamsOnly && !game.hasTreasurySpace(Owner.Player)),
+    { stillMarked, seamsOnly, vaultFull: !game.hasTreasurySpace(Owner.Player) });
+}
 check('dug floor gets claimed', territory > territoryAtStart + 30,
   { from: territoryAtStart, to: territory });
 check('mined gold reaches the treasury', game.goldOf(Owner.Player) > goldAtStart,
@@ -776,6 +794,59 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
   for (let y = cy - 1; y <= cy + 1; y++) m.room[m.idx(cx + 2, y)] = RoomType.Library;
   check('extending a room merges its footprint', sidesAt(cx + 1, cy) === 0,
     sidesAt(cx + 1, cy));
+}
+
+/* -- a full vault stops the mining ---------------------------------------- */
+
+{
+  /*
+   * On its own level, not the shared one.
+   *
+   * The first version of this ran on the game every later check uses: it
+   * withdrew most of the treasury and ran fifteen hundred extra ticks, which
+   * moved the whole timeline and knocked over a creature check four sections
+   * further down. A test that changes the world for its neighbours is worse than
+   * no test.
+   */
+  const vault = generateLevel({ seed: 1997 });
+  const vm = vault.map;
+  const vs = vault.startView();
+  vm.revealRadius(vs.x, vs.y, 22);
+  for (let y = vs.y - 8; y <= vs.y + 8; y++) {
+    for (let x = vs.x - 8; x <= vs.x + 8; x++) vault.markTile(x, y, true);
+  }
+  run(3000, vault);
+
+  const stuck: number[] = [];
+  for (let i = 0; i < vm.flags.length; i++) if ((vm.flags[i] & 1) !== 0) stuck.push(i);
+  /*
+   * Every survivor is a seam, or is walled in behind one.
+   *
+   * Not "every survivor is a seam": the earth *behind* a seam the imps have
+   * left standing has no exposed face any more, so it is unworkable for a
+   * perfectly ordinary reason that has nothing to do with the vault. Asserting
+   * the stricter thing would have made the test fail on correct behaviour.
+   */
+  const explained = stuck.every((i) => {
+    const t = vm.terrain[i] as Terrain;
+    if (t === Terrain.Gold || t === Terrain.Gems) return true;
+    return !vm.hasExposedFace(vm.xOf(i), vm.yOf(i));
+  });
+  check('a full vault leaves the seams standing', stuck.length > 0 && explained,
+    { left: stuck.length, kinds: [...new Set(stuck.map((i) => Terrain[vm.terrain[i]]))] });
+  check('and it is full, which is why', !vault.hasTreasurySpace(Owner.Player),
+    { gold: vault.goldOf(Owner.Player), cap: vault.treasuryCap() });
+  check('the player is told the mining has stopped',
+    vault.messages.some((m) => /treasury is full/i.test(m.text)));
+
+  // Room to bank it again, and the work resumes without further prompting.
+  const before = stuck.length;
+  vault.withdrawGold(Owner.Player, Math.floor(vault.treasuryCap() * 0.7));
+  run(2000, vault);
+  let after = 0;
+  for (let i = 0; i < vm.flags.length; i++) if ((vm.flags[i] & 1) !== 0) after++;
+  check('and the imps go back to it when there is room', after < before,
+    { was: before, now: after });
 }
 
 /* -- the hoard is stacked, not heaped ------------------------------------- */

@@ -203,6 +203,18 @@ export class PartBuilder {
     return this;
   }
 
+  /**
+   * Add a geometry built elsewhere, in one flat colour.
+   *
+   * An escape hatch for shapes the primitives here cannot express — the four
+   * sided frustum of a cast ingot, for one, since every primitive in this class
+   * floors its radial segments at eight to keep curved things smooth.
+   */
+  add(geometry: THREE.BufferGeometry, color: number): this {
+    this.push(geometry, color);
+    return this;
+  }
+
   build(): THREE.BufferGeometry {
     if (this.parts.length === 0) {
       // Merging needs at least one part; hand back something degenerate.

@@ -96,10 +96,34 @@ function looseCoin(b: PartBuilder, x: number, z: number, seed: number): void {
   );
 }
 
-/** A cast bar. Trapezoidal in section, which is what makes it read as cast. */
+/*
+ * A cast bar.
+ *
+ * The first one was two stacked boxes, 0.155 long by 0.072 wide by 0.067 tall —
+ * near square in section, which is a loaf. A Good Delivery bar is about
+ * 250 x 80 x 45mm, so it is three times longer than it is wide and thinner than
+ * it is wide again; get that ratio wrong and a row of them reads as pipes.
+ *
+ * The other half of it is the draft. A bar is cast in an open mould and lifted
+ * out, so every face slopes: the top is noticeably smaller than the bottom on
+ * all four sides, and the corners are the giveaway. That is a four-sided
+ * frustum, which none of the primitives here can make — they all floor their
+ * radial segments at eight to keep curved things smooth — so it is built
+ * directly and handed over.
+ */
+const INGOT_LEN = 0.198;
+const INGOT_WIDE = 0.066;
+const INGOT_TALL = 0.038;
+
 function ingot(b: PartBuilder, x: number, y: number, z: number, yaw: number, tone: number): void {
-  b.box(0.155, 0.047, 0.072, x, y, z, tone, 0, yaw, 0);
-  b.box(0.135, 0.020, 0.056, x, y + 0.030, z, tone === 0xf0c542 ? 0xffe07a : 0xffd75e, 0, yaw, 0);
+  // Four radial segments puts a vertex on each axis, so a quarter turn brings
+  // the flat faces square-on; the half-extent is then the radius over root two.
+  const g = new THREE.CylinderGeometry(0.79, 1, INGOT_TALL, 4, 1);
+  g.rotateY(Math.PI / 4);
+  g.scale((INGOT_LEN / 2) * Math.SQRT2, 1, (INGOT_WIDE / 2) * Math.SQRT2);
+  g.rotateY(yaw);
+  g.translate(x, y + INGOT_TALL / 2, z);
+  b.add(g, tone);
 }
 
 /**
@@ -165,16 +189,18 @@ function buildHoardBars(variant: number): THREE.BufferGeometry {
   const m = variant ? -1 : 1;
   // Bars in courses, each course set back and turned across the one below —
   // which is how anything heavy actually gets stacked so it does not walk.
-  const rows = [4, 3, 2];
-  let y = 0.024;
+  // Four courses. Three left the tier shorter than the stacks below it, and
+  // a richer tier that stands lower than a poorer one reads as a step backwards.
+  const rows = [4, 3, 2, 1];
+  let y = 0;
   rows.forEach((n, row) => {
     const across = row % 2 === 1;
     for (let i = 0; i < n; i++) {
-      const spread = (i - (n - 1) / 2) * 0.085;
-      ingot(b, m * (across ? spread : -0.05), y, across ? 0.02 : spread,
+      const spread = (i - (n - 1) / 2) * 0.078;
+      ingot(b, m * (across ? spread : -0.04), y, across ? 0.02 : spread,
         across ? Math.PI / 2 : 0, row === 1 ? 0xf0c542 : 0xe0ad2a);
     }
-    y += 0.050;
+    y += INGOT_TALL;
   });
   const spots: Array<[number, number, number]> = [
     [-0.28, -0.20, 6], [0.24, -0.22, 5], [-0.26, 0.22, 5], [0.27, 0.18, 7], [0.05, 0.30, 4],
@@ -198,7 +224,7 @@ function buildHoardBarrels(variant: number): THREE.BufferGeometry {
 
   // Bars stacked against the near side, and stacks of coins at the corners.
   for (let i = 0; i < 3; i++) {
-    ingot(b, m * 0.30, 0.024 + i * 0.050, -0.10 + i * 0.012, Math.PI / 2,
+    ingot(b, m * 0.30, i * INGOT_TALL, -0.10 + i * 0.010, Math.PI / 2,
       i === 1 ? 0xf0c542 : 0xe0ad2a);
   }
   const spots: Array<[number, number, number]> = [

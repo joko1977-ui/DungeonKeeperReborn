@@ -61,12 +61,25 @@ function buildOnward(): THREE.BufferGeometry {
   return b.build();
 }
 
-/** A marker to hang over a seam: a faceted crystal on a short stem. */
+/**
+ * A seam marker: a plate set into the top of the block, not a thing above it.
+ *
+ * It used to be a fat crystal on a stem, floating half a tile over the rock and
+ * bobbing. That is a lamp, not a label — eight of them hanging in the air around
+ * the starting dungeon, bright enough to pull the eye off everything, and each
+ * one occluding the very rock it was supposed to be telling you about. An
+ * overlay that hides the thing it annotates has got the job exactly backwards.
+ *
+ * Flat, low and lying on the stone, it reads as a surveyor's mark chalked on the
+ * block: still unmistakable from directly above, which is the only angle this
+ * camera has, and it covers a fifth of what it did.
+ */
 function buildSeamMark(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  b.box(0.05, 0.40, 0.05, 0, -0.30, 0, 0x7a7a7a);
-  // Five segments, so it comes out faceted rather than round: a gem, not a bead.
-  b.sphere(0.26, 0, 0, 0, 0xffffff, 1, 1.5, 1, 5);
+  // A diamond plate with a rim, and a small faceted stone set in the middle.
+  b.box(0.34, 0.020, 0.34, 0, 0.010, 0, 0x7d8590, 0, Math.PI / 4, 0);
+  b.box(0.22, 0.026, 0.22, 0, 0.026, 0, 0xffffff, 0, Math.PI / 4, 0);
+  b.sphere(0.070, 0, 0.048, 0, 0xffffff, 1, 0.62, 1, 5);
   return b.build();
 }
 
@@ -220,9 +233,11 @@ export class SurveyView {
     for (const seam of survey.seams) {
       if (this.seamCount >= MAX_SEAMS) break;
       const tile = seam.tile;
-      colour.setHex(seam.gems ? 0x7ce9ff : 0xffc23a);
+      // Pulled back from the old near-white gold: a mark, not a beacon.
+      colour.setHex(seam.gems ? 0x63c6dd : 0xd8a232);
       this.seamAt.push({
-        x: map.xOf(tile), y: map.yOf(tile), z: WALL_HEIGHT * 1.12 + 0.34,
+        // Just clear of the block's own top face, so it sits on the stone.
+        x: map.xOf(tile), y: map.yOf(tile), z: WALL_HEIGHT * 1.12 + 0.02,
       });
       this.seamMarks.setColorAt(this.seamCount, colour);
       this.seamCount++;
@@ -261,8 +276,10 @@ export class SurveyView {
 
     for (let i = 0; i < this.seamCount; i++) {
       const at = this.seamAt[i];
-      dummy.position.set(at.x, at.z + Math.sin(time * 1.6 + i * 1.3) * 0.07, at.y);
-      dummy.rotation.set(0, time * 0.9 + i, 0);
+      // No bob. A mark on a rock does not hover, and the movement was half of
+      // why these were distracting rather than informative.
+      dummy.position.set(at.x, at.z, at.y);
+      dummy.rotation.set(0, time * 0.35 + i, 0);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.seamMarks.setMatrixAt(i, dummy.matrix);

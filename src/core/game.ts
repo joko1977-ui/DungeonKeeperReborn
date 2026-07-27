@@ -486,6 +486,7 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
 
     this.updateResources();
     this.updateVision();
+    this.warnIfMiningStalled();
     this.updateWorkshop();
     this.updateTraps();
     this.updateGas();
@@ -540,6 +541,30 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
       // cycle, so a tile needs to produce well ahead of a tile's worth of mouths.
       const hatchery = this.rooms.count(this.map, owner, RoomType.Hatchery);
       if (k.food < hatchery) k.food = Math.min(hatchery, k.food + hatchery * 0.01);
+    }
+  }
+
+  /**
+   * Tell the player when a full vault has actually stopped the mining.
+   *
+   * The existing "treasury is full" message fires on a refused deposit, which
+   * stops happening the moment the imps stop bringing gold — so the one moment
+   * the player most needs telling is the moment the message goes quiet. This
+   * says the other half: the seams you tagged are still standing there, and they
+   * will keep standing until you build more vault.
+   */
+  private warnIfMiningStalled(): void {
+    if (this.tickCount % 40 !== 0) return;
+    if (this.hasTreasurySpace(Owner.Player)) return;
+    const map = this.map;
+    for (let i = 0; i < map.terrain.length; i++) {
+      if ((map.flags[i] & 1) === 0) continue;
+      const t = map.terrain[i] as Terrain;
+      if (t !== Terrain.Gold && t !== Terrain.Gems) continue;
+      this.notifyThrottled(
+        'Your treasury is full — your imps have stopped mining gold.',
+        'mining-stalled', 'treasury-full');
+      return;
     }
   }
 
