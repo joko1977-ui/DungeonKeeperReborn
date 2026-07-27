@@ -238,8 +238,12 @@ export class HandOfEvil {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    // Escape drops whatever tool is selected, back to the bare hand.
-    if (e.code === 'Escape') this.tool = { kind: 'hand' };
+    // Escape drops whatever tool is selected, back to the bare hand — and puts
+    // back anything the hand is carrying, so a mis-grab is one key to undo.
+    if (e.code === 'Escape') {
+      this.tool = { kind: 'hand' };
+      this.game.releaseHand();
+    }
   };
 
   /* -------------------------------------------------------------- touch - */

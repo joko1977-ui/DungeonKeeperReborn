@@ -92,8 +92,17 @@ const MAX_PER_TYPE = 220;
 /** Badges drawn at once, across every species. */
 const MAX_BADGES = 260;
 
+/** Health bars drawn at once. Only the hurt and the fighting get one. */
+const MAX_BARS = 260;
+
+/** World width of a full health bar. */
+const BAR_WIDTH = 0.62;
+
 /** How far above a creature's own height its badge floats. */
 const BADGE_LIFT = 0.34;
+
+/** Health bars ride below the badge, closer to the head. */
+const BAR_LIFT = 0.13;
 
 /** World size of a badge. Big enough to read from the default camera. */
 const BADGE_SIZE = 0.46;
@@ -195,6 +204,22 @@ export class CreatureRenderer {
    * is underneath them, so splitting them by species would buy nothing and cost
    * a draw call each.
    */
+  /**
+   * Health bars, for the creatures a fight is actually happening to.
+   *
+   * A brawl was two clusters of shapes swinging at each other with no way to
+   * tell who was winning until somebody fell over. Which of your five is nearly
+   * dead — the one to snatch out — was unanswerable, and snatching one out is
+   * the only tactical move the game gives you. Everything below full health
+   * carries a bar; everything at full carries nothing, so a healthy dungeon is
+   * not covered in furniture.
+   *
+   * Two instanced quads, back and fill, billboarded like the badges.
+   */
+  private readonly barBack: THREE.InstancedMesh;
+  private readonly barFill: THREE.InstancedMesh;
+  private readonly barMaterial: THREE.MeshBasicMaterial;
+
   private readonly badgeMesh: THREE.InstancedMesh;
   private readonly badgeMaterial: THREE.MeshBasicMaterial;
   private readonly badgeSlotAttr: THREE.InstancedBufferAttribute;
@@ -288,10 +313,37 @@ export class CreatureRenderer {
     this.badgeSlotAttr.setUsage(THREE.DynamicDrawUsage);
     badgeGeo.setAttribute('aBadge', this.badgeSlotAttr);
     applyBadgeAtlas(this.badgeMaterial);
+    // Unlit, depth-tested so rock hides them, and drawn just under the badges.
+    this.barMaterial = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const barGeo = new THREE.PlaneGeometry(1, 1);
+    this.barBack = new THREE.InstancedMesh(barGeo, this.barMaterial, MAX_BARS);
+    this.barFill = new THREE.InstancedMesh(barGeo.clone(), this.barMaterial, MAX_BARS);
+    // The fill draws after the backing and sits a hair nearer the camera. Two
+    // coplanar quads at the same render order sort by distance, and identical
+    // distances sort arbitrarily — which had the dark backing winning about half
+    // the time and the bar reading as an empty black slot.
+    this.barBack.renderOrder = 5;
+    this.barFill.renderOrder = 6;
+    for (const mesh of [this.barBack, this.barFill]) {
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.instanceColor =
+        new THREE.InstancedBufferAttribute(new Float32Array(MAX_BARS * 3), 3);
+      mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      this.group.add(mesh);
+    }
+
     this.badgeMesh = new THREE.InstancedMesh(badgeGeo, this.badgeMaterial, MAX_BADGES);
     this.badgeMesh.frustumCulled = false;
     this.badgeMesh.count = 0;
-    this.badgeMesh.renderOrder = 6;
+    this.badgeMesh.renderOrder = 7;
     this.badgeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.badgeMesh);
   }
@@ -402,6 +454,7 @@ export class CreatureRenderer {
   ): void {
     if (camera) camera.getWorldQuaternion(this.billboard);
     let badgeN = 0;
+    let barN = 0;
     // Bucket by species so each batch fills contiguously.
     const byType = new Map<CreatureType, Creature[]>();
     for (const c of creatures) {
@@ -490,6 +543,61 @@ export class CreatureRenderer {
           }
         }
 
+        /*
+         * A health bar, if this one is hurt or in a fight.
+         *
+         * Both, not just hurt: a creature that has just waded in at full health
+         * is exactly the one you want to watch, and a bar that only appears
+         * after the first blow lands always shows up a moment too late.
+         */
+        const barFrac = Math.max(0, Math.min(1, c.hp / maxHpOf(c)));
+        const inCombat = c.state === CreatureState.Fighting
+          || c.state === CreatureState.AttackingHeart;
+        if (barN < MAX_BARS && c.state !== CreatureState.Dying
+          && (barFrac < 0.999 || inCombat)) {
+          const lift = batch.height * CREATURE_SPECS[c.type].scale * rankScale(c.level);
+          const at = c.z + lift + BAR_LIFT;
+          this.dummy.position.set(c.x, at, c.y);
+          this.dummy.quaternion.copy(this.billboard);
+          this.dummy.scale.set(BAR_WIDTH, BAR_WIDTH * 0.17, 1);
+          this.dummy.updateMatrix();
+          this.barBack.setMatrixAt(barN, this.dummy.matrix);
+          // Dark backing so the bar reads over a firelit floor as well as rock.
+          this.color.setRGB(0.05, 0.04, 0.05);
+          this.barBack.setColorAt(barN, this.color);
+
+          // The fill shrinks from the right, so it empties the way a bar should
+          // rather than closing in from both ends.
+          const inner = BAR_WIDTH * 0.9;
+          this.dummy.position.set(
+            c.x, at, c.y,
+          );
+          this.dummy.translateX(-inner * (1 - barFrac) * 0.5);
+          this.dummy.translateZ(0.01);
+          this.dummy.scale.set(inner * barFrac, BAR_WIDTH * 0.10, 1);
+          this.dummy.updateMatrix();
+          this.barFill.setMatrixAt(barN, this.dummy.matrix);
+          /*
+           * Green through amber to red: the colour says how bad it is before you
+           * have measured the length of anything.
+           *
+           * Every channel stays at or below one. The material is unlit and not
+           * tone-mapped, so anything above one simply clips — the first version
+           * asked for 1.6 red and 1.5 green and got a row of white slots, which
+           * is the one thing a health bar must never be.
+           */
+          if (barFrac > 0.55) {
+            const k = (barFrac - 0.55) / 0.45;
+            this.color.setRGB(1.0 - k * 0.75, 0.72 + k * 0.28, 0.12 + k * 0.10);
+          } else {
+            const k = barFrac / 0.55;
+            this.color.setRGB(1.0, 0.18 + k * 0.54, 0.14);
+          }
+          if (c.owner !== Owner.Player) this.color.multiplyScalar(0.92);
+          this.barFill.setColorAt(barN, this.color);
+          barN++;
+        }
+
         const glow = auraStrength(c, time);
         if (glow > 0 && c.state !== CreatureState.Dying) {
           const size = CREATURE_SPECS[c.type].scale * rankScale(c.level) * 2.3;
@@ -544,6 +652,14 @@ export class CreatureRenderer {
       if (batch.body.instanceColor) batch.body.instanceColor.needsUpdate = true;
       if (batch.ring.instanceColor) batch.ring.instanceColor.needsUpdate = true;
       if (batch.eyes.instanceColor) batch.eyes.instanceColor.needsUpdate = true;
+    }
+
+    for (const mesh of [this.barBack, this.barFill]) {
+      mesh.count = barN;
+      if (barN > 0) {
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      }
     }
 
     this.badgeMesh.count = badgeN;
@@ -860,6 +976,9 @@ export class CreatureRenderer {
     this.sackMaterial.dispose();
     this.badgeMesh.geometry.dispose();
     this.badgeMaterial.dispose();
+    this.barBack.geometry.dispose();
+    this.barFill.geometry.dispose();
+    this.barMaterial.dispose();
     this.celRamp.dispose();
   }
 }

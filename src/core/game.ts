@@ -1,4 +1,5 @@
 import {
+  HAND_CAPACITY,
   HEART_HP,
   isDiggable,
   isWalkable,
@@ -163,7 +164,14 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   private heroWaveNumber = 0;
 
   /** Set when the player is holding something. */
-  handCreature: Creature | null = null;
+  /**
+   * The Hand of Evil's stack, oldest first; the last one grabbed drops first.
+   *
+   * Last in, first out, because that is what a hand does and because it means
+   * grabbing a creature by mistake is undone by one click rather than by
+   * emptying everything you meant to keep.
+   */
+  readonly hand: Creature[] = [];
   handGold = 0;
 
   /* ---- workshop ---- */
@@ -1301,20 +1309,56 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
   /* ----------------------------------------------------- hand of evil --- */
 
   /** Pick up a creature. Only your own, and only if your hand is empty. */
+  /**
+   * Snatch a creature up. The hand takes a fistful, not one at a time.
+   *
+   * Holding exactly one meant redeploying a warband was: grab, pan, drop, pan
+   * back, grab, pan, drop — six actions a creature, and the Hand of Evil is
+   * supposed to be the fast way to move an army. It carries a stack now, and
+   * every drop puts down one, so gathering six and placing them along a corridor
+   * is six clicks total rather than thirty-six.
+   */
   pickUpCreature(c: Creature): boolean {
-    if (this.handCreature || this.handGold > 0) return false;
+    if (this.handGold > 0) return false;
+    if (this.hand.length >= HAND_CAPACITY) return false;
     if (c.owner !== Owner.Player) return false;
-    if (c.state === CreatureState.Dying) return false;
+    if (c.inHand || c.state === CreatureState.Dying) return false;
     c.inHand = true;
     c.path = null;
     c.state = CreatureState.InHand;
     this.releaseLair(c);
-    this.handCreature = c;
+    this.hand.push(c);
     this.effect('grab', c.x, c.y);
     return true;
   }
 
-  /** Drop whatever is in the hand onto a tile. Returns false if it can't land. */
+  /** How many creatures the hand is carrying. */
+  handCount(): number {
+    return this.hand.length;
+  }
+
+  /** Everything currently held, oldest first. */
+  handContents(): readonly Creature[] {
+    return this.hand;
+  }
+
+  /** Put the whole fistful back where it was picked up from. Used by Escape. */
+  releaseHand(): void {
+    for (const c of [...this.hand]) {
+      c.inHand = false;
+      c.state = CreatureState.Stunned;
+      c.stateTimer = 0;
+      c.thinkCooldown = 0;
+    }
+    this.hand.length = 0;
+  }
+
+  /** The one that would be put down next, or null. */
+  get handCreature(): Creature | null {
+    return this.hand.length > 0 ? this.hand[this.hand.length - 1] : null;
+  }
+
+  /** Drop one creature onto a tile. Returns false if it can't land. */
   dropAt(x: number, y: number): boolean {
     const c = this.handCreature;
     if (!c) return false;
@@ -1330,7 +1374,7 @@ export class Game implements AIWorld, ObjectiveWorld, KeeperAiWorld {
     c.stateTimer = 0;
     c.thinkCooldown = 0;
     c.targetTile = -1;
-    this.handCreature = null;
+    this.hand.pop();
     this.effect('drop', x, y);
     return true;
   }

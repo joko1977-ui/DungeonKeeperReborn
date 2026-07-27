@@ -127,6 +127,12 @@ export class TileMap {
     // under a pile runs through here, so an imp's own spoil vanished the moment
     // another imp claimed the tile it was standing on.
     if (isSolid(t) && t !== Terrain.Gold && t !== Terrain.Gems) this.gold[i] = 0;
+    // A room cannot outlive the floor it was built on: dug out, reverted to bare
+    // path or filled back in, the building on this tile is gone.
+    if (t !== Terrain.Claimed) {
+      this.room[i] = RoomType.None;
+      this.roomId[i] = 0xffff;
+    }
     // A device cannot survive the floor under it being dug out or reclaimed.
     this.trap[i] = 0;
     this.trapCharges[i] = 0;
@@ -271,9 +277,21 @@ export class TileMap {
     if (this.owner[i] !== Owner.None && this.owner[i] !== by) {
       this.health[i] -= amount;
       if (this.health[i] > 0) return false;
+      /*
+       * Take the ground and the building on it comes down with it.
+       *
+       * You cannot capture an enemy room — nothing in the original works that
+       * way and nothing here should either. What you capture is *floor*, one
+       * tile at a time, and a room standing on floor that is no longer its
+       * owner's has nothing to stand on. Without this the terrain reverted and
+       * the room did not, leaving a rival's treasury sitting on neutral rock,
+       * still counted, still furnished, and owned by nobody.
+       */
       this.owner[i] = Owner.None;
       this.terrain[i] = Terrain.Path;
       this.health[i] = 0;
+      this.room[i] = RoomType.None;
+      this.roomId[i] = 0xffff;
       this.version++;
       return false;
     }

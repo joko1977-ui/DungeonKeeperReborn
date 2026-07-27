@@ -47,6 +47,8 @@ export interface HudCallbacks {
   onNavigate(x: number, y: number): void;
   /** Zoom to and pick up the next creature of a type, as the roster does. */
   onPickCreatureType(type: CreatureType): void;
+  /** Take the view to one of them, without picking anything up. */
+  onFindCreatureType(type: CreatureType): void;
 }
 
 /**
@@ -365,8 +367,12 @@ export class Hud {
         ${creatureIcon(type)}
         <span class="count">${count}</span>
         <span class="label">${spec.name}</span>`;
-      button.title = `${spec.name} — click to snatch one into your hand.`;
+      button.title = `${spec.name} — click to snatch one into your hand (click again for more). Right-click to go and look at one.`;
       button.addEventListener('click', () => this.callbacks.onPickCreatureType(type));
+      button.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.callbacks.onFindCreatureType(type);
+      });
       this.toolGrid.appendChild(button);
     }
   }
@@ -506,6 +512,18 @@ export class Hud {
       this.showCreatureInfo(this.hoveredCreature);
     } else if (game.handCreature) {
       this.showCreatureInfo(game.handCreature);
+      /*
+       * Say how many are in the fist, and which one comes out next.
+       *
+       * With a stack, "what am I holding" stops being obvious the moment it is
+       * more than one — and the answer decides where you click, because the next
+       * drop puts down the last one you grabbed.
+       */
+      const held = game.handCount();
+      if (held > 1) {
+        this.infoTitle.textContent =
+          `Holding ${held} — ${CREATURE_SPECS[game.handCreature.type].name} next`;
+      }
     } else if (this.infoTitle.textContent === 'Your Dungeon') {
       this.showDungeonInfo();
     }

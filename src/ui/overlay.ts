@@ -65,7 +65,10 @@ export function showBriefing(
       </dl>
       <dl class="keys">
         <dt>Left click</dt><dd>Tag walls for excavation — drag to tag a whole slab</dd>
-        <dt>Left click</dt><dd>Snatch up one of your creatures; click again to drop it on your floor</dd>
+        <dt>Left click</dt><dd>Snatch up one of your creatures. Grab a fistful — up to eight — and each click on your own floor drops one, the last one grabbed first. <b>Esc</b> puts them all back</dd>
+        <dt>Roster panel</dt><dd>Click a creature to snatch one without moving the view; click again for more. Right-click to go and look at one instead</dd>
+        <dt>Health bars</dt><dd>Over anything hurt or fighting. Snatch the one that is nearly dead out of the brawl</dd>
+        <dt>Enemy rooms</dt><dd>You cannot capture them. Send imps to claim the floor they stand on and the building comes down with the ground</dd>
         <dt>Right click</dt><dd>Slap a creature to hurry it along, or clear an excavation tag</dd>
         <dt>Middle drag</dt><dd>Rotate the view &nbsp;·&nbsp; <b>Q</b> / <b>E</b> to spin</dd>
         <dt>Wheel</dt><dd>Zoom &nbsp;·&nbsp; <b>W A S D</b> or arrows to move &nbsp;·&nbsp; edge of screen scrolls</dd>

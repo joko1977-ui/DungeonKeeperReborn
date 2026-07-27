@@ -97,15 +97,31 @@ rig.scene.add(hand.group);
 hud = new Hud(uiRoot, game, {
   onToolChange: (tool: Tool) => { hand.tool = tool; },
   onNavigate: (x, y) => camera.panTo(x, y),
+  /*
+   * Roster click: grab one, and leave the camera where it is.
+   *
+   * It used to pan the view to whichever creature it had picked up. That fights
+   * the reason you are clicking: you are looking at the place you want the
+   * creature *to be* — a corridor a raid is coming down, a wall you want dug —
+   * and the click throws that view away and shows you where the creature
+   * happened to be standing instead. Then you have to find your way back before
+   * you can drop it. Grabbing something should never move the world.
+   *
+   * Clicking again takes another, up to a fistful, and each drop puts down one.
+   */
   onPickCreatureType: (type: CreatureType) => {
-    // Mirror the original's roster click: grab the next idle one of that type
-    // and bring the view to where it was standing.
     const candidate = game.creatures.find(
       (c) => c.owner === Owner.Player && c.type === type && !c.inHand,
     );
     if (!candidate) return;
-    camera.panTo(candidate.x, candidate.y);
     game.pickUpCreature(candidate);
+  },
+  /** Right-click a roster entry to go and look at one instead. */
+  onFindCreatureType: (type: CreatureType) => {
+    const found = game.creatures.find(
+      (c) => c.owner === Owner.Player && c.type === type && !c.inHand,
+    );
+    if (found) camera.panTo(found.x, found.y);
   },
 });
 

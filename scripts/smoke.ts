@@ -11,7 +11,7 @@
  */
 
 import {
-  HEART_HP, Owner, RoomType, SpellType, Terrain, isDiggable, isWalkable,
+  HAND_CAPACITY, HEART_HP, Owner, RoomType, SpellType, Terrain, isDiggable, isWalkable,
 } from '../src/core/constants';
 import { CREATURE_SPECS, CreatureState, CreatureType, createCreature } from '../src/core/creatures';
 import { DOOR_SPECS, DoorType, TrapType } from '../src/core/devices';
@@ -794,6 +794,96 @@ check('different seeds diverge', fingerprint(4242) !== fingerprint(99));
   for (let y = cy - 1; y <= cy + 1; y++) m.room[m.idx(cx + 2, y)] = RoomType.Library;
   check('extending a room merges its footprint', sidesAt(cx + 1, cy) === 0,
     sidesAt(cx + 1, cy));
+}
+
+/* -- the hand carries a fistful ------------------------------------------- */
+
+{
+  const g = generateLevel({ seed: 8181 });
+  const gs = g.startView();
+  const held = [];
+  for (let i = 0; i < 10; i++) {
+    const c = createCreature(CreatureType.Imp, Owner.Player, gs.x, gs.y);
+    g.creatures.push(c);
+    held.push(c);
+  }
+  let taken = 0;
+  for (const c of held) if (g.pickUpCreature(c)) taken++;
+  check('the hand takes more than one', taken > 1, { taken });
+  check('but not without limit', taken === HAND_CAPACITY, { taken, cap: HAND_CAPACITY });
+  check('everything it holds knows it', g.handContents().every((c) => c.inHand));
+
+  // Last in, first out: a mis-grab is undone by one drop, not by emptying the
+  // whole fist.
+  const next = g.handCreature;
+  check('the next one out is the last one in', next === g.handContents()[taken - 1]);
+
+  const before = g.handCount();
+  const dropped = g.dropAt(gs.x, gs.y);
+  check('a drop puts down exactly one', dropped && g.handCount() === before - 1,
+    { before, after: g.handCount() });
+  check('and the one put down is back in the world',
+    next !== null && !next.inHand);
+
+  g.releaseHand();
+  check('and the hand can be emptied in one go',
+    g.handCount() === 0 && held.every((c) => !c.inHand));
+}
+
+/* -- taking the ground takes the building --------------------------------- */
+
+{
+  const g = generateLevel({ seed: 3131 });
+  const gm = g.map;
+  const gs = g.startView();
+
+  /*
+   * Counted against a baseline, not from zero.
+   *
+   * The rival keeper starts the level with a dungeon of his own, treasury
+   * included, so asserting "he has exactly four tiles" measures the level
+   * generator rather than the rule under test.
+   */
+  const baseline = g.rooms.count(gm, Owner.KeeperBlue, RoomType.Treasury);
+
+  // A rival's room, next to ground the player holds.
+  const rx = gs.x + 6, ry = gs.y;
+  for (let y = ry; y < ry + 2; y++) {
+    for (let x = rx; x < rx + 2; x++) {
+      gm.setTerrain(x, y, Terrain.Claimed, Owner.KeeperBlue);
+      gm.room[gm.idx(x, y)] = RoomType.Treasury;
+    }
+  }
+  check('the rival has a room to lose',
+    g.rooms.count(gm, Owner.KeeperBlue, RoomType.Treasury) === baseline + 4,
+    { baseline, now: g.rooms.count(gm, Owner.KeeperBlue, RoomType.Treasury) });
+
+  // Claim one of its tiles away, the way an imp does.
+  const target = gm.idx(rx, ry);
+  for (let i = 0; i < 400; i++) {
+    if (gm.terrain[target] !== Terrain.Claimed) break;
+    gm.claimTile(rx, ry, Owner.Player, 5);
+  }
+  check('claiming an enemy tile strips it back to bare path',
+    gm.terrain[target] === Terrain.Path && gm.owner[target] === Owner.None,
+    { terrain: Terrain[gm.terrain[target]] });
+  /*
+   * The room has to go with the floor.
+   *
+   * Reverting the terrain and leaving the room behind left a rival's treasury
+   * standing on neutral rock — still counted by the room index, still furnished,
+   * and owned by nobody. You cannot capture an enemy building; you take the
+   * ground and it comes down.
+   */
+  check('and the building on it comes down',
+    gm.room[target] === RoomType.None
+    && g.rooms.count(gm, Owner.KeeperBlue, RoomType.Treasury) === baseline + 3,
+    { expected: baseline + 3, left: g.rooms.count(gm, Owner.KeeperBlue, RoomType.Treasury) });
+
+  // Digging a floor tile out does the same, from the other direction.
+  const dug = gm.idx(rx + 1, ry);
+  gm.setTerrain(rx + 1, ry, Terrain.Earth, Owner.None);
+  check('and so does burying it', gm.room[dug] === RoomType.None);
 }
 
 /* -- rooms have room for only so many ------------------------------------- */

@@ -288,6 +288,14 @@ export const CLAIM_HEALTH = 60;
 export const GOLD_PER_SEAM = 750;
 /** Gold a single treasury tile can hold. */
 export const TREASURY_TILE_CAPACITY = 1000;
+
+/**
+ * How many creatures the Hand of Evil can carry at once.
+ *
+ * Enough to move a fighting group in one trip, few enough that it is still a
+ * hand rather than a transport. Eight is about a warband.
+ */
+export const HAND_CAPACITY = 8;
 /**
  * How much gold an imp hauls in one trip: exactly one seam.
  *
